@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<title>運転日誌</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<header id="topbar">
+  <button id="btn-back" aria-label="戻る" hidden>‹</button>
+  <h1 id="page-title">運転日誌</h1>
+  <span id="who"></span>
+  <span id="net-status" class="net-online" title="通信状態">●</span>
+</header>
+
+<main id="view"></main>
+
+<nav id="bottombar">
+  <button class="navbtn" data-route="#/list">一覧</button>
+  <button class="navbtn" data-route="#/new">新規</button>
+  <button class="navbtn" data-route="#/settings">設定</button>
+</nav>
+
+<!-- 各画面のテンプレート -->
+
+<template id="tpl-config">
+  <section class="card">
+    <h2>初回設定</h2>
+    <p class="hint">GASウェブアプリの URL と共有トークンを入れてください。社内配布の APK では事前に埋め込みます。</p>
+    <label>GAS URL
+      <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+    </label>
+    <label>共有トークン
+      <input id="cfg-token" type="text" placeholder="nip-unten-poc-2026-..." autocomplete="off">
+    </label>
+    <div class="row">
+      <button id="cfg-test" class="primary">接続テスト</button>
+      <button id="cfg-save" class="primary">保存</button>
+    </div>
+    <p id="cfg-msg" class="msg"></p>
+  </section>
+</template>
+
+<template id="tpl-picker">
+  <section class="card">
+    <h2>あなたは誰ですか？</h2>
+    <p class="hint">運転日誌に「入力者」として記録されます。あとで設定画面で変更できます。</p>
+    <div id="picker-list" class="picker-list"></div>
+  </section>
+</template>
+
+<template id="tpl-list">
+  <section class="list-section">
+    <div class="list-toolbar">
+      <span id="list-count">— 件</span>
+      <button id="btn-refresh" class="ghost">更新</button>
+    </div>
+    <div id="pending-banner" class="pending-banner" hidden>
+      <span id="pending-count"></span> 件が未送信です
+      <button id="btn-sync" class="ghost">送信</button>
+    </div>
+    <div id="list-items"></div>
+    <p id="list-msg" class="msg"></p>
+  </section>
+</template>
+
+<template id="tpl-form">
+  <section class="card">
+    <h2>新規入力</h2>
+    <form id="form-new" autocomplete="off">
+      <label>日時
+        <input id="f-date" type="date" required>
+      </label>
+      <label>車種
+        <select id="f-vehicle" required></select>
+      </label>
+      <label>発車前メータ <small id="f-start-hint"></small>
+        <input id="f-start" type="number" inputmode="numeric" min="0" required>
+      </label>
+      <label>到着後メータ
+        <input id="f-end" type="number" inputmode="numeric" min="0" required>
+      </label>
+      <p class="distance">走行距離: <span id="f-dist">—</span> km</p>
+      <label class="check">
+        <input id="f-etc" type="checkbox" checked>
+        ETC を使用した
+      </label>
+      <label>給油（L、空欄可）
+        <input id="f-fuel" type="number" inputmode="decimal" step="0.01" min="0">
+      </label>
+      <label>アルコールチェック確認者
+        <input id="f-alc" type="text" placeholder="例: 松木">
+      </label>
+      <label>備考
+        <textarea id="f-memo" rows="2" placeholder="行先・連絡事項など"></textarea>
+      </label>
+      <button id="btn-submit" class="primary big" type="submit">登録</button>
+      <p id="form-msg" class="msg"></p>
+    </form>
+  </section>
+</template>
+
+<template id="tpl-settings">
+  <section class="card">
+    <h2>設定</h2>
+    <p>入力者: <strong id="set-who"></strong> <button id="btn-change-user" class="ghost">変更</button></p>
+    <p>GAS URL: <code id="set-url"></code></p>
+    <p>SHARED_TOKEN: <code id="set-token"></code></p>
+    <hr>
+    <div class="row">
+      <button id="btn-edit-config" class="ghost">接続設定を編集</button>
+      <button id="btn-clear-cache" class="ghost danger">ローカル全消去</button>
+    </div>
+    <p class="hint">
+      アプリのバージョン: <span id="ver"></span><br>
+      未送信件数: <span id="set-pending">0</span>
+    </p>
+  </section>
+</template>
+
+<script src="./app.js" defer></script>
+</body>
+</html>

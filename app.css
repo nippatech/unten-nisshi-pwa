@@ -1,0 +1,212 @@
+:root {
+  --primary: #1f3a5f;
+  --primary-dark: #122948;
+  --accent: #44886b;
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6b7280;
+  --danger: #b3261e;
+  --success: #186;
+  --border: #e3e6eb;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+               "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-top: 56px;
+  padding-bottom: 64px;
+  min-height: 100vh;
+}
+
+/* ヘッダ */
+#topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 56px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  z-index: 10;
+  gap: 8px;
+  box-shadow: var(--shadow);
+}
+#page-title { flex: 1; font-size: 1.05rem; margin: 0; font-weight: 600; }
+#who { font-size: 0.9rem; opacity: 0.9; }
+#net-status { width: 12px; height: 12px; border-radius: 50%; font-size: 0; }
+#net-status.net-online { background: #6dfa9b; }
+#net-status.net-offline { background: #ff8888; }
+#btn-back {
+  background: transparent;
+  color: #fff;
+  border: 0;
+  font-size: 1.5rem;
+  width: 32px;
+  cursor: pointer;
+}
+
+/* メイン */
+#view { padding: 12px 12px 16px; }
+
+/* フッタナビ */
+#bottombar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 64px;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 10;
+}
+.navbtn {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 8px 0;
+}
+.navbtn.active { color: var(--primary); font-weight: 600; }
+
+/* カード */
+.card {
+  background: var(--surface);
+  padding: 16px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+}
+.card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 12px; }
+
+/* フォーム */
+label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+label small { color: var(--muted); margin-left: 6px; font-weight: normal; }
+input[type=text], input[type=url], input[type=number], input[type=date],
+select, textarea {
+  width: 100%;
+  font-size: 1rem;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+.distance { font-size: 1rem; margin: 8px 0; color: var(--accent); font-weight: 600; }
+
+/* ボタン */
+button {
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+button.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+button.primary:hover { background: var(--primary-dark); }
+button.big { width: 100%; padding: 14px; font-size: 1.05rem; margin-top: 16px; }
+button.ghost { background: transparent; color: var(--primary); border-color: var(--primary); }
+button.ghost.danger { color: var(--danger); border-color: var(--danger); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row > * { flex: 1; }
+button:disabled { opacity: 0.5; pointer-events: none; }
+
+/* メッセージ */
+.msg { font-size: 0.9rem; min-height: 1.2em; margin: 8px 0 0; }
+.msg.ok { color: var(--success); }
+.msg.ng { color: var(--danger); }
+
+/* 一覧 */
+.list-section { padding-bottom: 16px; }
+.list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 4px 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.pending-banner {
+  background: #fff7e0;
+  border: 1px solid #f1c879;
+  padding: 10px;
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+.pending-banner button { padding: 4px 10px; font-size: 0.85rem; }
+
+.log-item {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+}
+.log-item .top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.log-item .vehicle { font-weight: 600; color: var(--text); margin: 4px 0; }
+.log-item .nums { font-size: 0.9rem; color: var(--muted); }
+.log-item .nums b { color: var(--text); }
+.log-item.pending { border-left: 4px solid #f1a500; padding-left: 10px; }
+
+/* 社員ピッカー */
+.picker-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.picker-list button {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.picker-list button .pid { display: block; font-size: 0.75rem; color: var(--muted); }
+
+hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+code { background: #f1f3f7; padding: 1px 6px; border-radius: 4px; font-size: 0.85rem; word-break: break-all; }
