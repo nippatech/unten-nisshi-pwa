@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.1.0-poc';
+const APP_VERSION = '0.2.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -351,6 +351,54 @@ async function renderForm() {
   document.getElementById('f-start').oninput = calcDist;
   document.getElementById('f-end').oninput = calcDist;
 
+  // 行先マスタ読み込み（キャッシュ優先）
+  let destMaster = [];
+  try {
+    const j = await apiGet('destinations');
+    destMaster = j.data;
+    dbPut('cache', { key: 'destinations_master', value: destMaster, at: Date.now() }).catch(() => {});
+  } catch (_) {
+    const c = await dbGet('cache', 'destinations_master');
+    destMaster = c?.value || [];
+  }
+
+  // 行先データ UI 構築
+  const destContainer = document.getElementById('f-destinations');
+  const addDestRow = (preset = {}) => {
+    const row = document.createElement('div');
+    row.className = 'dest-row';
+    // 拠店セレクト
+    const placeSel = document.createElement('select');
+    placeSel.className = 'dest-place';
+    const places = [...new Set(destMaster.map(d => d['拠店']).filter(Boolean))];
+    placeSel.innerHTML = '<option value="">拠店を選択</option>'
+      + places.map(p => `<option value="${escape(p)}"${preset['拠店'] === p ? ' selected' : ''}>${escape(p)}</option>`).join('');
+    // 行先セレクト
+    const destSel = document.createElement('select');
+    destSel.className = 'dest-name';
+    const fillDest = () => {
+      const place = placeSel.value;
+      const opts = destMaster.filter(d => !place || d['拠店'] === place).map(d => d['行先']).filter(Boolean);
+      destSel.innerHTML = '<option value="">行先を選択</option>'
+        + [...new Set(opts)].map(o => `<option value="${escape(o)}"${preset['行先'] === o ? ' selected' : ''}>${escape(o)}</option>`).join('');
+    };
+    fillDest();
+    placeSel.onchange = fillDest;
+    // 削除ボタン
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'rm';
+    rm.textContent = '×';
+    rm.onclick = () => row.remove();
+    row.appendChild(placeSel);
+    row.appendChild(destSel);
+    row.appendChild(rm);
+    destContainer.appendChild(row);
+  };
+  document.getElementById('btn-add-dest').onclick = () => addDestRow();
+  // 初期は1行
+  addDestRow();
+
   // 送信
   document.getElementById('form-new').onsubmit = async (ev) => {
     ev.preventDefault();
@@ -358,6 +406,14 @@ async function renderForm() {
     const btn = document.getElementById('btn-submit');
     btn.disabled = true;
     msg.textContent = '送信中…';
+
+    // 行先データ収集
+    const destinations = [];
+    document.querySelectorAll('.dest-row').forEach(r => {
+      const place = r.querySelector('.dest-place')?.value || '';
+      const dest = r.querySelector('.dest-name')?.value || '';
+      if (place || dest) destinations.push({ '拠店': place, '行先': dest });
+    });
 
     const payload = {
       '日時': document.getElementById('f-date').value,
@@ -370,6 +426,7 @@ async function renderForm() {
       '備考': document.getElementById('f-memo').value || '',
       '運転者': cfg.userId,
       '車種表示': sel.options[sel.selectedIndex]?.textContent || '',
+      'destinations': destinations,
     };
 
     if (!navigator.onLine) {
