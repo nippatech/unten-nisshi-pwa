@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.8.1-poc';
+const APP_VERSION = '0.8.2-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -562,7 +562,7 @@ async function renderForm(opts = {}) {
     const opt = document.createElement('option');
     opt.value = v.ID;
     // 使用者は別ドロップダウン（運転者）で選ぶので車種ラベルからは除外（退職者名の残留防止）
-    const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim();
+    const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
     opt.textContent = label;
     opt.dataset.user = v['使用者'] || '';
     sel.appendChild(opt);
@@ -771,7 +771,7 @@ async function renderBulk() {
     const driverInput = `<select class="b-driver"><option value="">選択</option>${driverOpts}</select>`;
     // 車種セレクト
     const vehicleOpts = vehicles.map(v => {
-      const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim();
+      const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
       return `<option value="${escape(v.ID)}"${String(preset.vehicle) === String(v.ID) ? ' selected' : ''}>${escape(label)}</option>`;
     }).join('');
     const vehicleInput = `<select class="b-vehicle"><option value="">選択</option>${vehicleOpts}</select>`;
