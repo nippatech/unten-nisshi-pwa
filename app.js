@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.6.0-poc';
+const APP_VERSION = '0.7.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -483,6 +483,24 @@ async function renderForm(opts = {}) {
     document.getElementById('f-date').value = today;
   }
 
+  // Phase F: 運転者ドロップダウン構築
+  const driverSel = document.getElementById('f-driver');
+  const driverHint = document.getElementById('f-driver-hint');
+  driverSel.innerHTML = '<option value="">選択</option>' + STAFF_FALLBACK.map(s =>
+    `<option value="${escape(s.id)}"${(isEdit && editRecord && String(editRecord['運転者']) === String(s.id)) || (!isEdit && cfg.userId === s.id) ? ' selected' : ''}>${escape(s.name)}（${escape(s.id)}）</option>`
+  ).join('');
+  // 編集時：運転者は変更不可（GAS update_log 仕様）
+  // 一般ユーザー：自分以外を選べないようロック
+  if (isEdit) {
+    driverSel.disabled = true;
+    driverHint.textContent = '（編集時は変更不可）';
+  } else if (!me.isAdmin) {
+    driverSel.disabled = true;
+    driverHint.textContent = '（自分以外を選ぶには管理者権限が必要）';
+  } else {
+    driverHint.textContent = '（管理者：代理入力で他人を選べます）';
+  }
+
   // 車種オプション読み込み（キャッシュ優先）
   const sel = document.getElementById('f-vehicle');
   sel.innerHTML = '<option value="">読み込み中…</option>';
@@ -597,6 +615,8 @@ async function renderForm(opts = {}) {
       if (place || dest) destinations.push({ '拠店': place, '行先': dest });
     });
 
+    // Phase F: 運転者はドロップダウンから取得（編集時は disabled だが既存値が入っている）
+    const selectedDriver = driverSel.value || cfg.userId;
     const payload = {
       '日時': document.getElementById('f-date').value,
       '車種': document.getElementById('f-vehicle').value,
@@ -606,7 +626,7 @@ async function renderForm(opts = {}) {
       '給油(L)': document.getElementById('f-fuel').value ? Number(document.getElementById('f-fuel').value) : '',
       'アルコールチェック表示': document.getElementById('f-alc').value || '',
       '備考': document.getElementById('f-memo').value || '',
-      '運転者': cfg.userId,
+      '運転者': selectedDriver,
       '車種表示': sel.options[sel.selectedIndex]?.textContent || '',
       'destinations': destinations,
     };
