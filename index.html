@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.7.1">
+<link rel="stylesheet" href="./app.css?v=0.8.0">
 </head>
 <body>
 <header id="topbar">
@@ -24,6 +24,7 @@
   <button class="navbtn" data-route="#/list">一覧</button>
   <button class="navbtn" data-route="#/new">新規</button>
   <button class="navbtn admin-only" data-route="#/bulk" hidden>一括</button>
+  <button class="navbtn admin-only" data-route="#/staff" hidden>社員</button>
   <button class="navbtn" data-route="#/settings">設定</button>
 </nav>
 
@@ -132,6 +133,30 @@
   </section>
 </template>
 
+<template id="tpl-staff">
+  <section class="card">
+    <h2>社員管理（管理者専用）</h2>
+    <p class="hint">運転者ドロップダウンに表示される人を管理します。退職フラグを立てると、ドロップダウンから消えます（過去の入力データは残ります）。</p>
+    <div class="staff-add">
+      <h3>新規追加</h3>
+      <div class="staff-add-row">
+        <input id="staff-new-id" type="text" placeholder="社員ID（氏名でも可）">
+        <input id="staff-new-name" type="text" placeholder="表示名（氏名）">
+        <button id="btn-staff-add" class="primary" type="button">追加</button>
+      </div>
+      <p id="staff-add-msg" class="msg"></p>
+    </div>
+    <hr>
+    <h3>社員一覧</h3>
+    <div class="staff-toolbar">
+      <label class="admin-toggle"><input type="checkbox" id="chk-show-retired"> 退職者も表示</label>
+      <span id="staff-count" class="bulk-rowcount">— 件</span>
+    </div>
+    <div id="staff-list" class="staff-list"></div>
+    <p id="staff-msg" class="msg"></p>
+  </section>
+</template>
+
 <template id="tpl-bulk">
   <section class="card">
     <h2>一括入力（代理・過去日付OK）</h2>
@@ -167,6 +192,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.7.1" defer></script>
+<script src="./app.js?v=0.8.0" defer></script>
 </body>
 </html>

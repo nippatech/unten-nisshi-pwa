@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.7.1-poc';
+const APP_VERSION = '0.8.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -32,6 +32,31 @@ async function fetchMe() {
     console.warn('fetchMe failed', e);
   }
 }
+// Phase G: 社員マスタ（動的取得）
+let staffList = []; // [{社員ID, 氏名, 退職フラグ}]
+async function fetchStaff(includeRetired) {
+  try {
+    const params = includeRetired ? { all: 'true' } : {};
+    const j = await apiGet('staff', params);
+    staffList = j.data || [];
+    dbPut('cache', { key: 'staff_list', value: staffList, at: Date.now() }).catch(() => {});
+    return staffList;
+  } catch (e) {
+    // フォールバック: キャッシュ → STAFF_FALLBACK
+    const c = await dbGet('cache', 'staff_list');
+    if (c?.value && c.value.length > 0) {
+      staffList = c.value;
+    } else {
+      staffList = STAFF_FALLBACK.map(s => ({ '社員ID': s.id, '氏名': s.name, '退職フラグ': false }));
+    }
+    return staffList;
+  }
+}
+// 表示用の在職者だけのリスト
+function activeStaff() {
+  return staffList.filter(s => !s['退職フラグ']);
+}
+
 // レコードを「自分が編集可能か」判定（PWA側）
 function canEdit(record) {
   if (me.isAdmin) return true;
@@ -163,6 +188,7 @@ const routes = {
   '#/list': renderList,
   '#/new': renderForm,
   '#/bulk': renderBulk,
+  '#/staff': renderStaff,
   '#/settings': renderSettings,
 };
 function go(hash) {
@@ -487,12 +513,24 @@ async function renderForm(opts = {}) {
     document.getElementById('f-date').value = today;
   }
 
-  // Phase F: 運転者ドロップダウン構築
+  // Phase F/G: 運転者ドロップダウン構築（社員マスタから動的取得、退職者除外）
+  if (staffList.length === 0) await fetchStaff();
   const driverSel = document.getElementById('f-driver');
   const driverHint = document.getElementById('f-driver-hint');
-  driverSel.innerHTML = '<option value="">選択</option>' + STAFF_FALLBACK.map(s =>
-    `<option value="${escape(s.id)}"${(isEdit && editRecord && String(editRecord['運転者']) === String(s.id)) || (!isEdit && cfg.userId === s.id) ? ' selected' : ''}>${escape(s.name)}（${escape(s.id)}）</option>`
-  ).join('');
+  // 編集モードでは既存運転者が退職済でも選択できるよう、退職含むリストも考慮
+  const editingDriver = isEdit && editRecord ? String(editRecord['運転者'] || '') : '';
+  let visibleStaff = activeStaff();
+  if (editingDriver && !visibleStaff.find(s => String(s['社員ID']) === editingDriver)) {
+    const retiredMatch = staffList.find(s => String(s['社員ID']) === editingDriver);
+    if (retiredMatch) visibleStaff = [retiredMatch, ...visibleStaff];
+  }
+  driverSel.innerHTML = '<option value="">選択</option>' + visibleStaff.map(s => {
+    const id = String(s['社員ID']);
+    const name = String(s['氏名'] || id);
+    const isSelected = (isEdit && editingDriver === id) || (!isEdit && cfg.userId === id);
+    const retiredLabel = s['退職フラグ'] ? '【退職済】' : '';
+    return `<option value="${escape(id)}"${isSelected ? ' selected' : ''}>${escape(name)}${retiredLabel}（${escape(id)}）</option>`;
+  }).join('');
   // 編集時：運転者は変更不可（GAS update_log 仕様）
   // 一般ユーザー：自分以外を選べないようロック
   if (isEdit) {
@@ -693,6 +731,7 @@ async function renderBulk() {
     alert('一括入力は管理者のみ利用できます');
     return go('#/list');
   }
+  if (staffList.length === 0) await fetchStaff();
   setTitle('一括入力');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-bulk').content.cloneNode(true));
@@ -722,8 +761,12 @@ async function renderBulk() {
     tr.className = 'bulk-row';
     // 日付
     const dateInput = `<input type="date" class="b-date" value="${escape(preset.date || new Date().toISOString().slice(0,10))}">`;
-    // 運転者セレクト
-    const driverOpts = STAFF_FALLBACK.map(s => `<option value="${escape(s.id)}"${preset.driver === s.id ? ' selected' : ''}>${escape(s.name)}</option>`).join('');
+    // 運転者セレクト（社員マスタから、退職者除外）
+    const driverOpts = activeStaff().map(s => {
+      const id = String(s['社員ID']);
+      const name = String(s['氏名'] || id);
+      return `<option value="${escape(id)}"${preset.driver === id ? ' selected' : ''}>${escape(name)}</option>`;
+    }).join('');
     const driverInput = `<select class="b-driver"><option value="">選択</option>${driverOpts}</select>`;
     // 車種セレクト
     const vehicleOpts = vehicles.map(v => {
@@ -860,6 +903,103 @@ async function renderBulk() {
   };
 }
 
+// ----- Phase G: ビュー: 社員管理（管理者専用） -----
+async function renderStaff() {
+  if (!me.loaded) await fetchMe();
+  if (!me.isAdmin) {
+    alert('社員管理は管理者のみ利用できます');
+    return go('#/list');
+  }
+  setTitle('社員管理');
+  const view = document.getElementById('view');
+  view.appendChild(document.getElementById('tpl-staff').content.cloneNode(true));
+
+  const listEl = document.getElementById('staff-list');
+  const countEl = document.getElementById('staff-count');
+  const msgEl = document.getElementById('staff-msg');
+  const showRetired = document.getElementById('chk-show-retired');
+
+  let allStaff = [];
+  const refresh = async () => {
+    try {
+      const j = await apiGet('staff', { all: 'true' });
+      allStaff = j.data || [];
+      // グローバルも更新（在職者のみ）
+      staffList = allStaff;
+      render();
+    } catch (e) {
+      msgEl.className = 'msg ng';
+      msgEl.textContent = '取得失敗: ' + e.message;
+    }
+  };
+
+  const render = () => {
+    listEl.innerHTML = '';
+    const showAll = showRetired.checked;
+    const visible = showAll ? allStaff : allStaff.filter(s => !s['退職フラグ']);
+    const retiredCount = allStaff.filter(s => s['退職フラグ']).length;
+    countEl.textContent = `${visible.length} 件${showAll && retiredCount > 0 ? `（うち退職 ${retiredCount}）` : ''}`;
+    for (const s of visible) {
+      const id = String(s['社員ID']);
+      const name = String(s['氏名'] || id);
+      const isRetired = !!s['退職フラグ'];
+      const div = document.createElement('div');
+      div.className = 'staff-item' + (isRetired ? ' retired' : '');
+      div.innerHTML = `
+        <div>
+          <span class="name">${escape(name)}</span>
+          ${isRetired ? '<span class="retired-badge">退職済</span>' : ''}
+        </div>
+        <span class="id">${escape(id)}</span>
+        <div class="actions">
+          <button class="ghost small ${isRetired ? '' : 'danger'}" data-toggle="${escape(id)}" data-retired="${isRetired ? '1' : '0'}">${isRetired ? '復職' : '退職'}</button>
+        </div>
+      `;
+      div.querySelector('[data-toggle]').onclick = async (ev) => {
+        ev.preventDefault();
+        const targetRetire = !isRetired;
+        const msg = targetRetire ? `「${name}」を退職にしますか？\nドロップダウンから消えますが、過去データは残ります。` : `「${name}」を復職させますか？`;
+        if (!confirm(msg)) return;
+        try {
+          await apiPost('staff_retire', { '社員ID': id, '退職フラグ': targetRetire }, { userId: cfg.userId });
+          await refresh();
+        } catch (e) {
+          alert('失敗: ' + e.message);
+        }
+      };
+      listEl.appendChild(div);
+    }
+  };
+
+  showRetired.onchange = render;
+
+  document.getElementById('btn-staff-add').onclick = async () => {
+    const idEl = document.getElementById('staff-new-id');
+    const nameEl = document.getElementById('staff-new-name');
+    const addMsg = document.getElementById('staff-add-msg');
+    const newId = idEl.value.trim();
+    const newName = nameEl.value.trim() || newId;
+    if (!newId) {
+      addMsg.className = 'msg ng';
+      addMsg.textContent = '社員IDが必要です';
+      return;
+    }
+    try {
+      const j = await apiPost('staff_upsert', { '社員ID': newId, '氏名': newName }, { userId: cfg.userId });
+      addMsg.className = 'msg ok';
+      addMsg.textContent = `${j.action === 'created' ? '追加' : '更新'}しました: ${newName}（${newId}）`;
+      idEl.value = '';
+      nameEl.value = '';
+      await refresh();
+    } catch (e) {
+      addMsg.className = 'msg ng';
+      addMsg.textContent = '失敗: ' + e.message;
+    }
+  };
+
+  await refresh();
+}
+
 // ----- ビュー: 設定 -----
 async function renderSettings() {
   setTitle('設定');
@@ -940,10 +1080,11 @@ setNetStatus();
 whoLabel();
 if (!location.hash) location.hash = '#/list';
 handleRoute();
-// Phase B/E: 起動時に自分の権限情報を取得し、ナビボタンと一覧を反映
+// Phase B/E/G: 起動時に自分の権限と社員マスタを取得
 (async () => {
   if (cfg.url && cfg.token && cfg.userId) {
     await fetchMe();
+    await fetchStaff(); // Phase G: 社員マスタ取得
     document.querySelectorAll('.navbtn.admin-only').forEach(b => { b.hidden = !me.isAdmin; });
     if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
       handleRoute();

@@ -224,6 +224,28 @@ button:disabled { opacity: 0.5; pointer-events: none; }
 .bulk-progress .bulk-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .bulk-progress .bulk-stat { font-size: 0.85rem; color: var(--muted); }
 
+/* Phase G: 社員管理 */
+.staff-add { background: #f7f8fa; padding: 12px; border-radius: 8px; margin: 8px 0 12px; }
+.staff-add-row { display: grid; grid-template-columns: 1fr 1fr 100px; gap: 8px; align-items: center; }
+.staff-add-row input { padding: 8px; }
+.staff-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 0.9rem; color: var(--muted); }
+.staff-list { display: flex; flex-direction: column; gap: 6px; }
+.staff-item {
+  display: grid;
+  grid-template-columns: 1fr 120px 140px;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.staff-item.retired { opacity: 0.55; background: #f9f6f6; border-left: 4px solid var(--danger); }
+.staff-item .name { font-weight: 600; }
+.staff-item .id { font-size: 0.85rem; color: var(--muted); font-family: ui-monospace, monospace; }
+.staff-item .actions button { padding: 6px 12px; font-size: 0.85rem; }
+.staff-item .retired-badge { display: inline-block; padding: 2px 8px; background: var(--danger); color: #fff; border-radius: 10px; font-size: 0.7rem; margin-left: 8px; }
+
 /* 社員ピッカー */
 .picker-list {
   display: grid;
