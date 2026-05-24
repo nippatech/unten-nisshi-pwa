@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>運転日誌 PWA - Android セットアップ案内</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --primary: #1f3a5f;
+    --primary-light: #4a6b94;
+    --accent: #44886b;
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --text: #1d1d1f;
+    --muted: #6b7280;
+    --border: #e3e6eb;
+    --radius: 12px;
+    --shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+                 "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-light));
+    color: #fff;
+    padding: 28px 20px;
+    text-align: center;
+  }
+  header h1 { margin: 0; font-size: 1.6rem; }
+  header .sub { margin-top: 6px; opacity: 0.9; font-size: 0.95rem; }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 20px 16px 64px;
+  }
+  section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow);
+  }
+  h2 {
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 3px solid var(--primary);
+    font-size: 1.2rem;
+    color: var(--primary);
+  }
+  h3 { margin: 18px 0 8px; font-size: 1rem; color: var(--primary); }
+  p { margin: 0 0 12px; }
+
+  /* QR + URL ブロック */
+  .qr-block {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  .qr-wrap {
+    background: #fff;
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+  }
+  .qr-wrap canvas, .qr-wrap img { display: block; margin: 0 auto; }
+  .qr-caption { margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
+  .url-info { font-size: 0.95rem; }
+  .url-info b { color: var(--primary); }
+
+  /* コピー可能ボックス */
+  .copy-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f1f3f7;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin: 8px 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+  }
+  .copy-box code { flex: 1; cursor: pointer; user-select: all; -webkit-user-select: all; }
+  .copy-box code:active { background: #dbe3ee; outline: 2px solid var(--primary); border-radius: 4px; }
+  .copy-btn {
+    background: var(--primary);
+    color: #fff;
+    border: 0;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: var(--primary-light); }
+  .copy-btn.copied { background: var(--accent); }
+  .copy-btn.fail { background: var(--accent); }
+  .copy-hint { font-size: 0.78rem; color: var(--muted); margin: 4px 0 0; }
+
+  /* ステップ */
+  .step {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 14px;
+    margin-bottom: 16px;
+    align-items: start;
+  }
+  .step .num {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .step .body {
+    background: #f7f8fa;
+    padding: 12px 14px;
+    border-radius: 8px;
+  }
+  .step .body b { color: var(--primary); }
+  .step .body small { color: var(--muted); display: block; margin-top: 4px; font-size: 0.85rem; }
+
+  /* 注意・ヒント */
+  .tip {
+    background: #fff7e0;
+    border-left: 4px solid #f1c879;
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 0.92rem;
+  }
+  .tip b { color: #a86a00; }
+
+  /* テストシナリオ表 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.92rem;
+  }
+  th, td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #eef2f7;
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  tr:last-child td { border-bottom: 0; }
+
+  @media (max-width: 720px) {
+    .qr-block { grid-template-columns: 1fr; }
+    .qr-wrap { max-width: 280px; margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📱 運転日誌 PWA</h1>
+  <div class="sub">Android 実機セットアップ案内</div>
+</header>
+
+<main>
+
+  <section>
+    <h2>① まずはこのQRコードを Android のカメラで読み取る</h2>
+    <div class="qr-block">
+      <div class="qr-wrap">
+        <div id="qrcode"></div>
+        <div class="qr-caption">運転日誌 PWA 本番URL</div>
+      </div>
+      <div class="url-info">
+        <p><b>QRコードを Android のカメラで撮ると</b>、運転日誌アプリのURLが開けます。<br>
+        カメラを向けると上に「リンクが表示」されるので、それをタップ → Chrome で開きます。</p>
+        <p>うまく読めないときは、下のURLをコピーして、Chrome のアドレスバーに貼り付けてください。</p>
+        <div class="copy-box">
+          <code id="url-text">https://nippatech.github.io/unten-nisshi-pwa/</code>
+          <button class="copy-btn" data-copy="url-text">コピー</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>② 初回設定（最初の1回だけ）</h2>
+    <p>アプリを開くと「初回設定」画面が出ます。以下の2つを入れて「<b>接続テスト</b>」→「<b>保存</b>」。</p>
+
+    <h3>GAS URL（貼り付け推奨）</h3>
+    <div class="copy-box">
+      <code id="gas-url">https://script.google.com/macros/s/AKfycbyAKtGvfOWv98qpeNQhBfOTOaRQX5FNk_XPrZoCw24KR4U8ew7kqlS3vjiqMUW3HDrPMQ/exec</code>
+      <button class="copy-btn" data-copy="gas-url">コピー</button>
+    </div>
+
+    <h3>共有トークン</h3>
+    <div class="copy-box">
+      <code id="token">nip-unten-poc-2026-a8c3f9e2</code>
+      <button class="copy-btn" data-copy="token">コピー</button>
+    </div>
+
+    <div class="tip">
+      <b>💡 コピーが効かないとき</b>：<br>
+      ・グレーのテキスト部分を <b>タップ → 長押し → 「コピー」</b> を選んでください（一番確実）<br>
+      ・ローカルファイル（file://）で開いていると自動コピーが制限されることがあります。<br>
+      ・確実なのは、HTTPS版（下の<b>GitHub Pages版</b>）を開く方法です。
+    </div>
+    <div class="tip" style="background:#e7f4ff; border-color:#7fb3ff;">
+      <b>🌐 GitHub Pages版（推奨）</b>：HTTPSで配信されるのでコピーボタンが100%動きます。<br>
+      <div class="copy-box" style="margin-top:8px;">
+        <code id="https-guide">https://nippatech.github.io/unten-nisshi-pwa/setup-android.html</code>
+        <button class="copy-btn" data-copy="https-guide">コピー</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>③ ステップバイステップ</h2>
+
+    <div class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <b>Android Chrome で URL にアクセス</b>
+        <small>QRを読むか、URLを貼り付けて開く</small>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <b>初回設定：GAS URL と 共有トークンを入力</b>
+        <small>長いので必ずコピペ推奨</small>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <b>「接続テスト」をタップ</b>
+        <small>「OK（◯件取得）」と緑色のメッセージが出ればOK</small>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="body">
+        <b>「保存」をタップ</b>
+        <small>→ 入力者選択画面へ自動で進む</small>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <b>「門田」をタップ（管理者として動作確認したいので）</b>
+        <small>他の運転者を選べば、一般ユーザーとしての動作も確認できる</small>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">6</div>
+      <div class="body">
+        <b>ホーム画面に追加（PWAインストール）</b>
+        <small>Chrome右上「⋮」メニュー → 「ホーム画面に追加」 → 「追加」<br>
+        ホーム画面に「運」アイコンが出る。これをタップすればアドレスバーなしで全画面表示</small>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>④ 実機テストでチェックしたいこと</h2>
+    <table>
+      <thead>
+        <tr><th>項目</th><th>確認内容</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>表示</b></td><td>文字が小さすぎないか、ボタンがタップしやすいか</td></tr>
+        <tr><td><b>新規入力</b></td><td>日付ピッカー、車種ドロップダウン、メータ数値キーボード、行先追加が問題なく動くか</td></tr>
+        <tr><td><b>編集</b></td><td>一覧から「編集」ボタン → 値が正しく入って保存できるか</td></tr>
+        <tr><td><b>削除・復活</b></td><td>削除ボタン → 確認ダイアログ → 一覧から消える。「☐ 削除済を表示」で復活できるか</td></tr>
+        <tr><td><b>一括入力</b></td><td>表形式が横スクロールで操作しやすいか（注：表は横長なのでスマホでは少し見にくい可能性あり）</td></tr>
+        <tr><td><b>オフライン</b></td><td>機内モードにして新規入力 → 「⚠️ オフライン」と出て端末保存。<br>機内モード解除 → 自動で送信される（バナー消失で確認）</td></tr>
+        <tr><td><b>PWAインストール</b></td><td>ホーム画面アイコンから起動 → 全画面表示、Chromeのアドレスバーが出ないこと</td></tr>
+        <tr><td><b>再起動後</b></td><td>アプリを完全に閉じて開き直しても、設定（URL/トークン/入力者）が保存されていること</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>⑤ うまくいかないとき</h2>
+    <table>
+      <thead>
+        <tr><th>症状</th><th>対処</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>接続テストで失敗する</td><td>URL末尾の <code>/exec</code> までコピーできているか、トークンに余計な空白がないか確認</td></tr>
+        <tr><td>真っ白で何も出ない</td><td>HTTPSでアクセスできているか確認。一度キャッシュをクリアしてリロード</td></tr>
+        <tr><td>古いバージョンが出る</td><td>Chromeの設定 → サイトデータ削除 → 再アクセス。または PWAをアンインストールして入れ直し</td></tr>
+        <tr><td>ホーム画面追加が出ない</td><td>HTTPSでアクセスしているか、Service Workerが登録されているかを確認。URLを開いて30秒待ってから再度メニューを開く</td></tr>
+        <tr><td>キャプチャを送りたい</td><td>不具合のスクショ＋手順を社内チャットに投稿 → 直すのは PWA側 or GAS側のコード調整で対応可能</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>⑥ 将来：APK化（社内15端末配布）</h2>
+    <p>PWAで実機テストOKになったら、<b>Bubblewrap</b> というツールで .apk ファイルを作って、社内端末に直接配布できます。これは Phase 6 として後日対応予定。</p>
+    <p>必要なもの：Google Play Console（無料、開発者登録は$25一回のみ）、または Play非経由で社内配布用のAPKを直接インストール（端末側で「提供元不明のアプリを許可」設定が必要）。</p>
+  </section>
+
+</main>
+
+<script>
+  // QRコード生成
+  new QRCode(document.getElementById('qrcode'), {
+    text: 'https://nippatech.github.io/unten-nisshi-pwa/',
+    width: 232,
+    height: 232,
+    correctLevel: QRCode.CorrectLevel.M
+  });
+
+  // 要素のテキストを全選択
+  function selectAllInElement(el) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // コピー処理（複数のフォールバックを用意）
+  async function copyText(text) {
+    // 1. Modern Clipboard API（HTTPS or 一部file://で動く）
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (_) {}
+    }
+    // 2. 旧API execCommand: ほぼ全ての環境で動く
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '1px';
+    ta.style.height = '1px';
+    ta.style.padding = '0';
+    ta.style.border = 'none';
+    ta.style.outline = 'none';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  // コピーボタン
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.copy;
+      const el = document.getElementById(id);
+      const txt = el.textContent.trim();
+      const orig = btn.textContent;
+      const ok = await copyText(txt);
+      if (ok) {
+        btn.textContent = '✓ コピー済';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.classList.remove('copied');
+        }, 1800);
+      } else {
+        // フォールバック: テキストを全選択して長押しコピーを促す
+        selectAllInElement(el);
+        btn.textContent = '長押しでコピー';
+        btn.classList.add('fail');
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.classList.remove('fail');
+        }, 3500);
+      }
+    };
+  });
+
+  // コード部分タップで即全選択（最も確実な手段）
+  document.querySelectorAll('.copy-box code').forEach(code => {
+    code.addEventListener('click', () => selectAllInElement(code));
+  });
+</script>
+
+</body>
+</html>
