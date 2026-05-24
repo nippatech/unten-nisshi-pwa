@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.3.0-poc';
+const APP_VERSION = '0.4.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -340,15 +340,39 @@ function renderLogCard(d, isPending) {
     <div class="nums">
       <b>${km} km</b> ／ ${d['発車前メータ'] || '?'} → ${d['到着後メータ'] || '?'}${fuel}${driver}
     </div>
-    ${editable ? `<div class="actions"><button class="ghost small" data-edit="${escape(dataId)}">編集</button></div>` : ''}
+    ${editable ? `<div class="actions"><button class="ghost small" data-edit="${escape(dataId)}">編集</button><button class="ghost small danger" data-del="${escape(dataId)}">削除</button></div>` : ''}
   `;
   if (editable) {
     div.querySelector('[data-edit]').onclick = (ev) => {
       ev.preventDefault();
       go('#/edit/' + encodeURIComponent(dataId));
     };
+    div.querySelector('[data-del]').onclick = async (ev) => {
+      ev.preventDefault();
+      await deleteRecord(dataId, d);
+    };
   }
   return div;
+}
+
+// Phase C: レコード論理削除（確認ダイアログ付き）
+async function deleteRecord(dataId, record) {
+  const label = `${formatDate(record['日時'])} / ${record['車種表示'] || '車種ID:' + record['車種']}`;
+  if (!confirm(`このレコードを削除しますか？\n\n${label}\n\n削除しても管理者が後で復活できます。`)) return;
+  if (!navigator.onLine) {
+    alert('オフラインでは削除できません。オンラインになってからお試しください。');
+    return;
+  }
+  try {
+    await apiPost('delete_log', { 'データID': dataId }, { userId: cfg.userId });
+    if (location.hash === '#/list' || location.hash === '' || location.hash === '#') {
+      handleRoute();
+    } else {
+      go('#/list');
+    }
+  } catch (e) {
+    alert('削除失敗: ' + e.message);
+  }
 }
 
 // ----- ビュー: 入力フォーム（新規 / 編集 共用） -----
