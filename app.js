@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.8.0-poc';
+const APP_VERSION = '0.8.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -561,7 +561,8 @@ async function renderForm(opts = {}) {
   vehicles.forEach(v => {
     const opt = document.createElement('option');
     opt.value = v.ID;
-    const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim() + (v['使用者'] ? ` / ${v['使用者']}` : '');
+    // 使用者は別ドロップダウン（運転者）で選ぶので車種ラベルからは除外（退職者名の残留防止）
+    const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim();
     opt.textContent = label;
     opt.dataset.user = v['使用者'] || '';
     sel.appendChild(opt);
@@ -960,10 +961,23 @@ async function renderStaff() {
         const targetRetire = !isRetired;
         const msg = targetRetire ? `「${name}」を退職にしますか？\nドロップダウンから消えますが、過去データは残ります。` : `「${name}」を復職させますか？`;
         if (!confirm(msg)) return;
+        const btn = ev.currentTarget;
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = targetRetire ? '退職処理中…' : '復職処理中…';
+        msgEl.className = 'msg';
+        msgEl.textContent = '更新中…';
         try {
           await apiPost('staff_retire', { '社員ID': id, '退職フラグ': targetRetire }, { userId: cfg.userId });
           await refresh();
+          msgEl.className = 'msg ok';
+          msgEl.textContent = `「${name}」を${targetRetire ? '退職' : '復職'}しました`;
+          setTimeout(() => { msgEl.textContent = ''; msgEl.className = 'msg'; }, 3000);
         } catch (e) {
+          btn.disabled = false;
+          btn.textContent = origText;
+          msgEl.className = 'msg ng';
+          msgEl.textContent = '失敗: ' + e.message;
           alert('失敗: ' + e.message);
         }
       };
