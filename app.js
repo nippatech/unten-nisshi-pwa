@@ -916,10 +916,11 @@ setNetStatus();
 whoLabel();
 if (!location.hash) location.hash = '#/list';
 handleRoute();
-// Phase B: 起動時に自分の権限情報を取得して一覧の編集ボタン表示に反映
+// Phase B/E: 起動時に自分の権限情報を取得し、ナビボタンと一覧を反映
 (async () => {
   if (cfg.url && cfg.token && cfg.userId) {
     await fetchMe();
+    document.querySelectorAll('.navbtn.admin-only').forEach(b => { b.hidden = !me.isAdmin; });
     if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
       handleRoute();
     }
