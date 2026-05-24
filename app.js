@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.7.0-poc';
+const APP_VERSION = '0.7.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -433,6 +433,10 @@ async function deleteRecord(dataId, record) {
 
 // ----- ビュー: 入力フォーム（新規 / 編集 共用） -----
 async function renderForm(opts = {}) {
+  // Phase F: 管理者判定をフォーム描画前に確実に取得
+  if (!me.loaded) {
+    await fetchMe();
+  }
   const mode = opts.mode || 'new';
   const editId = opts.dataId || '';
   const isEdit = mode === 'edit';
