@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.8.2">
+<link rel="stylesheet" href="./app.css?v=0.9.0">
 </head>
 <body>
 <header id="topbar">
@@ -104,7 +104,8 @@
         <button id="btn-add-dest" type="button" class="ghost small">＋ 行先を追加</button>
       </fieldset>
       <label>アルコールチェック確認者
-        <input id="f-alc" type="text" placeholder="例: 松木">
+        <input id="f-alc" type="text" list="alc-options" placeholder="名前を入力 or 選択">
+        <datalist id="alc-options"></datalist>
       </label>
       <label>備考
         <textarea id="f-memo" rows="2" placeholder="連絡事項など"></textarea>
@@ -192,6 +193,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.8.2" defer></script>
+<script src="./app.js?v=0.9.0" defer></script>
 </body>
 </html>

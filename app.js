@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.8.2-poc';
+const APP_VERSION = '0.9.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -55,6 +55,21 @@ async function fetchStaff(includeRetired) {
 // 表示用の在職者だけのリスト
 function activeStaff() {
   return staffList.filter(s => !s['退職フラグ']);
+}
+
+// Phase H: アルコールチェック確認者リスト
+let checkersList = []; // [{ID, 確認者}]
+async function fetchCheckers() {
+  try {
+    const j = await apiGet('checkers');
+    checkersList = (j.data && j.data.rows) ? j.data.rows : [];
+    dbPut('cache', { key: 'checkers_list', value: checkersList, at: Date.now() }).catch(() => {});
+    return checkersList;
+  } catch (e) {
+    const c = await dbGet('cache', 'checkers_list');
+    checkersList = c?.value || [];
+    return checkersList;
+  }
 }
 
 // レコードを「自分が編集可能か」判定（PWA側）
@@ -529,7 +544,7 @@ async function renderForm(opts = {}) {
     const name = String(s['氏名'] || id);
     const isSelected = (isEdit && editingDriver === id) || (!isEdit && cfg.userId === id);
     const retiredLabel = s['退職フラグ'] ? '【退職済】' : '';
-    return `<option value="${escape(id)}"${isSelected ? ' selected' : ''}>${escape(name)}${retiredLabel}（${escape(id)}）</option>`;
+    return `<option value="${escape(id)}"${isSelected ? ' selected' : ''}>${escape(name)}${retiredLabel}</option>`;
   }).join('');
   // 編集時：運転者は変更不可（GAS update_log 仕様）
   // 一般ユーザー：自分以外を選べないようロック
@@ -579,6 +594,14 @@ async function renderForm(opts = {}) {
     document.getElementById('f-memo').value = editRecord['備考'] ?? '';
   }
 
+  // Phase H: アルコールチェック確認者 datalist
+  if (checkersList.length === 0) await fetchCheckers();
+  const alcDl = document.getElementById('alc-options');
+  if (alcDl) {
+    alcDl.innerHTML = checkersList.map(c => `<option value="${escape(c['確認者'])}">`).join('');
+  }
+  // Phase H: 行先用 datalist は行追加時に構築する
+
   // 走行距離 自動計算
   const calcDist = () => {
     const s = parseFloat(document.getElementById('f-start').value);
@@ -603,7 +626,9 @@ async function renderForm(opts = {}) {
 
   // 行先データ UI 構築
   const destContainer = document.getElementById('f-destinations');
+  let destRowSeq = 0;
   const addDestRow = (preset = {}) => {
+    destRowSeq++;
     const row = document.createElement('div');
     row.className = 'dest-row';
     // 拠店セレクト
@@ -612,14 +637,20 @@ async function renderForm(opts = {}) {
     const places = [...new Set(destMaster.map(d => d['拠店']).filter(Boolean))];
     placeSel.innerHTML = '<option value="">拠店を選択</option>'
       + places.map(p => `<option value="${escape(p)}"${preset['拠店'] === p ? ' selected' : ''}>${escape(p)}</option>`).join('');
-    // 行先セレクト
-    const destSel = document.createElement('select');
-    destSel.className = 'dest-name';
+    // Phase H: 行先 input + datalist（拠店連動 + 部分一致補完）
+    const destInput = document.createElement('input');
+    destInput.type = 'text';
+    destInput.className = 'dest-name';
+    destInput.placeholder = '行先を入力 or 選択';
+    destInput.value = preset['行先'] || '';
+    const dl = document.createElement('datalist');
+    const dlId = 'dest-dl-' + destRowSeq + '-' + Date.now();
+    dl.id = dlId;
+    destInput.setAttribute('list', dlId);
     const fillDest = () => {
       const place = placeSel.value;
       const opts = destMaster.filter(d => !place || d['拠店'] === place).map(d => d['行先']).filter(Boolean);
-      destSel.innerHTML = '<option value="">行先を選択</option>'
-        + [...new Set(opts)].map(o => `<option value="${escape(o)}"${preset['行先'] === o ? ' selected' : ''}>${escape(o)}</option>`).join('');
+      dl.innerHTML = [...new Set(opts)].map(o => `<option value="${escape(o)}">`).join('');
     };
     fillDest();
     placeSel.onchange = fillDest;
@@ -630,7 +661,8 @@ async function renderForm(opts = {}) {
     rm.textContent = '×';
     rm.onclick = () => row.remove();
     row.appendChild(placeSel);
-    row.appendChild(destSel);
+    row.appendChild(destInput);
+    row.appendChild(dl);
     row.appendChild(rm);
     destContainer.appendChild(row);
   };
@@ -661,9 +693,9 @@ async function renderForm(opts = {}) {
     // Phase F: 運転者はドロップダウンから取得（編集時は disabled だが既存値が入っている）
     const selectedDriver = driverSel.value || cfg.userId;
     const payload = {
-      '日時': document.getElementById('f-date').value,
+      '日時': document.getElementById('f-date').value.replace(/-/g, '/'),
       '車種': document.getElementById('f-vehicle').value,
-      'ETC 使用': document.getElementById('f-etc').checked,
+      'ETC 使用': document.getElementById('f-etc').checked ? 'TRUE' : 'FALSE',
       '発車前メータ': Number(document.getElementById('f-start').value),
       '到着後メータ': Number(document.getElementById('f-end').value),
       '給油(L)': document.getElementById('f-fuel').value ? Number(document.getElementById('f-fuel').value) : '',
@@ -852,9 +884,9 @@ async function renderBulk() {
         rowEl: r,
         index: i,
         payload: {
-          '日時': date,
+          '日時': String(date).replace(/-/g, '/'),
           '車種': vehicle,
-          'ETC 使用': r.querySelector('.b-etc').checked,
+          'ETC 使用': r.querySelector('.b-etc').checked ? 'TRUE' : 'FALSE',
           '発車前メータ': Number(start),
           '到着後メータ': Number(end),
           '給油(L)': r.querySelector('.b-fuel').value ? Number(r.querySelector('.b-fuel').value) : '',
@@ -1099,6 +1131,7 @@ handleRoute();
   if (cfg.url && cfg.token && cfg.userId) {
     await fetchMe();
     await fetchStaff(); // Phase G: 社員マスタ取得
+    await fetchCheckers(); // Phase H: 確認者リスト取得
     document.querySelectorAll('.navbtn.admin-only').forEach(b => { b.hidden = !me.isAdmin; });
     if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
       handleRoute();
