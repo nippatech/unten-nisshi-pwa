@@ -207,6 +207,23 @@ button:disabled { opacity: 0.5; pointer-events: none; }
 .list-toolbar .admin-toggle { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-right: auto; margin-left: 12px; cursor: pointer; }
 .list-toolbar .admin-toggle input { margin: 0; }
 
+/* Phase E: 一括入力（表形式） */
+.bulk-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.bulk-rowcount { margin-left: auto; font-size: 0.9rem; color: var(--muted); }
+.bulk-table-wrap { overflow-x: auto; margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; }
+.bulk-table { border-collapse: collapse; width: 100%; min-width: 900px; font-size: 0.85rem; }
+.bulk-table th, .bulk-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+.bulk-table th { background: #eef2f7; color: var(--primary); font-weight: 600; position: sticky; top: 0; }
+.bulk-table input[type=date], .bulk-table input[type=number], .bulk-table input[type=text], .bulk-table select { padding: 4px 6px; font-size: 0.85rem; width: 100%; min-width: 70px; }
+.bulk-table .b-memo { min-width: 140px; }
+.bulk-table .b-driver, .bulk-table .b-vehicle { min-width: 110px; }
+.bulk-table .b-dist { text-align: right; font-weight: 600; color: var(--accent); min-width: 50px; }
+.bulk-table .rm-row { background: transparent; border: 1px solid var(--border); color: var(--danger); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+.bulk-progress { margin: 12px 0; }
+.bulk-progress .bulk-bar { background: var(--border); height: 12px; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+.bulk-progress .bulk-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+.bulk-progress .bulk-stat { font-size: 0.85rem; color: var(--muted); }
+
 /* 社員ピッカー */
 .picker-list {
   display: grid;

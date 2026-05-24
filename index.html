@@ -23,6 +23,7 @@
 <nav id="bottombar">
   <button class="navbtn" data-route="#/list">一覧</button>
   <button class="navbtn" data-route="#/new">新規</button>
+  <button class="navbtn admin-only" data-route="#/bulk" hidden>一括</button>
   <button class="navbtn" data-route="#/settings">設定</button>
 </nav>
 
@@ -125,6 +126,41 @@
       アプリのバージョン: <span id="ver"></span><br>
       未送信件数: <span id="set-pending">0</span>
     </p>
+  </section>
+</template>
+
+<template id="tpl-bulk">
+  <section class="card">
+    <h2>一括入力（代理・過去日付OK）</h2>
+    <p class="hint">過去日付・他の運転者として複数件まとめて登録できます。<br>
+    必須：日付 / 運転者 / 車種 / 発車前メータ / 到着後メータ</p>
+    <div class="bulk-toolbar">
+      <button id="btn-bulk-add" class="ghost" type="button">＋ 行を追加</button>
+      <button id="btn-bulk-clear" class="ghost danger" type="button">全クリア</button>
+      <span id="bulk-rowcount" class="bulk-rowcount">0 行</span>
+    </div>
+    <div class="bulk-table-wrap">
+      <table class="bulk-table">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>運転者</th>
+            <th>車種</th>
+            <th>発車前</th>
+            <th>到着後</th>
+            <th>距離</th>
+            <th>ETC</th>
+            <th>給油</th>
+            <th>備考</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bulk-rows"></tbody>
+      </table>
+    </div>
+    <button id="btn-bulk-submit" class="primary big" type="button">全件送信</button>
+    <div id="bulk-progress" class="bulk-progress"></div>
+    <p id="bulk-msg" class="msg"></p>
   </section>
 </template>
 

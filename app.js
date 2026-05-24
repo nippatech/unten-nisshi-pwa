@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.5.0-poc';
+const APP_VERSION = '0.6.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -162,6 +162,7 @@ const routes = {
   '#/picker': renderPicker,
   '#/list': renderList,
   '#/new': renderForm,
+  '#/bulk': renderBulk,
   '#/settings': renderSettings,
 };
 function go(hash) {
@@ -188,9 +189,12 @@ function handleRoute() {
     const fn = routes[location.hash] || renderList;
     fn();
   }
-  // ナビ active 表示
+  // ナビ active 表示 + Phase E: 管理者用ボタンの表示制御
   document.querySelectorAll('.navbtn').forEach(b => {
     b.classList.toggle('active', b.dataset.route === location.hash);
+    if (b.classList.contains('admin-only')) {
+      b.hidden = !me.isAdmin;
+    }
   });
   // 戻るボタン制御
   document.getElementById('btn-back').hidden = (location.hash === '' || location.hash === '#/list' || location.hash === '#');
@@ -651,6 +655,183 @@ async function renderForm(opts = {}) {
       msg.className = 'msg ng';
       msg.textContent = `送信失敗（端末に退避しました）: ${e.message}`;
       btn.disabled = false;
+    }
+  };
+}
+
+// ----- Phase E: ビュー: 一括入力（管理者専用） -----
+async function renderBulk() {
+  // 管理者ガード
+  if (!me.loaded) {
+    await fetchMe();
+  }
+  if (!me.isAdmin) {
+    alert('一括入力は管理者のみ利用できます');
+    return go('#/list');
+  }
+  setTitle('一括入力');
+  const view = document.getElementById('view');
+  view.appendChild(document.getElementById('tpl-bulk').content.cloneNode(true));
+
+  // 車種マスタ取得（キャッシュ優先）
+  let vehicles = [];
+  try {
+    const j = await apiGet('vehicles');
+    vehicles = j.data;
+    dbPut('cache', { key: 'vehicles', value: vehicles, at: Date.now() }).catch(() => {});
+  } catch (_) {
+    const c = await dbGet('cache', 'vehicles');
+    vehicles = c?.value || [];
+  }
+
+  const tbody = document.getElementById('bulk-rows');
+  const rowcount = document.getElementById('bulk-rowcount');
+  const progress = document.getElementById('bulk-progress');
+  const msg = document.getElementById('bulk-msg');
+
+  const updateRowCount = () => {
+    rowcount.textContent = tbody.querySelectorAll('.bulk-row').length + ' 行';
+  };
+
+  const addBulkRow = (preset = {}) => {
+    const tr = document.createElement('tr');
+    tr.className = 'bulk-row';
+    // 日付
+    const dateInput = `<input type="date" class="b-date" value="${escape(preset.date || new Date().toISOString().slice(0,10))}">`;
+    // 運転者セレクト
+    const driverOpts = STAFF_FALLBACK.map(s => `<option value="${escape(s.id)}"${preset.driver === s.id ? ' selected' : ''}>${escape(s.name)}</option>`).join('');
+    const driverInput = `<select class="b-driver"><option value="">選択</option>${driverOpts}</select>`;
+    // 車種セレクト
+    const vehicleOpts = vehicles.map(v => {
+      const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim();
+      return `<option value="${escape(v.ID)}"${String(preset.vehicle) === String(v.ID) ? ' selected' : ''}>${escape(label)}</option>`;
+    }).join('');
+    const vehicleInput = `<select class="b-vehicle"><option value="">選択</option>${vehicleOpts}</select>`;
+    tr.innerHTML = `
+      <td>${dateInput}</td>
+      <td>${driverInput}</td>
+      <td>${vehicleInput}</td>
+      <td><input type="number" class="b-start" inputmode="numeric" min="0" value="${preset.start ?? ''}"></td>
+      <td><input type="number" class="b-end" inputmode="numeric" min="0" value="${preset.end ?? ''}"></td>
+      <td class="b-dist">—</td>
+      <td><input type="checkbox" class="b-etc" ${preset.etc === false ? '' : 'checked'}></td>
+      <td><input type="number" class="b-fuel" inputmode="decimal" step="0.01" min="0" value="${preset.fuel ?? ''}"></td>
+      <td><input type="text" class="b-memo" value="${escape(preset.memo || '')}"></td>
+      <td><button type="button" class="rm-row">×</button></td>
+    `;
+    // 距離自動計算
+    const calc = () => {
+      const s = parseFloat(tr.querySelector('.b-start').value);
+      const e = parseFloat(tr.querySelector('.b-end').value);
+      const distCell = tr.querySelector('.b-dist');
+      if (!isNaN(s) && !isNaN(e) && e >= s) distCell.textContent = (e - s).toFixed(0);
+      else distCell.textContent = '—';
+    };
+    tr.querySelector('.b-start').oninput = calc;
+    tr.querySelector('.b-end').oninput = calc;
+    // 行削除
+    tr.querySelector('.rm-row').onclick = () => {
+      tr.remove();
+      updateRowCount();
+    };
+    tbody.appendChild(tr);
+    updateRowCount();
+  };
+
+  document.getElementById('btn-bulk-add').onclick = () => addBulkRow();
+  document.getElementById('btn-bulk-clear').onclick = () => {
+    if (tbody.children.length === 0) return;
+    if (!confirm('全行をクリアしますか？')) return;
+    tbody.innerHTML = '';
+    progress.innerHTML = '';
+    msg.textContent = '';
+    updateRowCount();
+  };
+
+  // 初期1行
+  addBulkRow();
+
+  // 送信処理
+  document.getElementById('btn-bulk-submit').onclick = async () => {
+    const rows = Array.from(tbody.querySelectorAll('.bulk-row'));
+    if (rows.length === 0) {
+      msg.className = 'msg ng';
+      msg.textContent = '入力された行がありません';
+      return;
+    }
+    if (!navigator.onLine) {
+      msg.className = 'msg ng';
+      msg.textContent = 'オフラインでは一括送信できません';
+      return;
+    }
+    // バリデーション
+    const payloads = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const date = r.querySelector('.b-date').value;
+      const driver = r.querySelector('.b-driver').value;
+      const vehicle = r.querySelector('.b-vehicle').value;
+      const start = r.querySelector('.b-start').value;
+      const end = r.querySelector('.b-end').value;
+      if (!date || !driver || !vehicle || start === '' || end === '') {
+        msg.className = 'msg ng';
+        msg.textContent = `${i+1}行目: 必須項目が未入力です（日付/運転者/車種/メータ）`;
+        r.style.background = '#fde7e7';
+        return;
+      }
+      r.style.background = '';
+      payloads.push({
+        rowEl: r,
+        index: i,
+        payload: {
+          '日時': date,
+          '車種': vehicle,
+          'ETC 使用': r.querySelector('.b-etc').checked,
+          '発車前メータ': Number(start),
+          '到着後メータ': Number(end),
+          '給油(L)': r.querySelector('.b-fuel').value ? Number(r.querySelector('.b-fuel').value) : '',
+          '備考': r.querySelector('.b-memo').value || '',
+          '運転者': driver,
+        }
+      });
+    }
+    // 並列送信
+    progress.innerHTML = `<div class="bulk-bar"><span style="width:0%"></span></div><div class="bulk-stat">0 / ${payloads.length}</div>`;
+    const bar = progress.querySelector('.bulk-bar span');
+    const stat = progress.querySelector('.bulk-stat');
+    let done = 0, ok = 0, ng = 0;
+    const errors = [];
+    msg.className = 'msg';
+    msg.textContent = '送信中…';
+    // 並列だがレートを抑える（5本同時まで）
+    const concurrency = 5;
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < payloads.length) {
+        const i = cursor++;
+        const p = payloads[i];
+        try {
+          await apiPost('create_log', p.payload);
+          p.rowEl.style.background = '#e2f5ea';
+          ok++;
+        } catch (e) {
+          p.rowEl.style.background = '#fde7e7';
+          ng++;
+          errors.push(`行${i+1}: ${e.message}`);
+        }
+        done++;
+        bar.style.width = (done / payloads.length * 100) + '%';
+        stat.textContent = `${done} / ${payloads.length}（成功 ${ok} / 失敗 ${ng}）`;
+      }
+    };
+    const workers = Array.from({length: Math.min(concurrency, payloads.length)}, () => worker());
+    await Promise.all(workers);
+    if (ng === 0) {
+      msg.className = 'msg ok';
+      msg.textContent = `全 ${ok} 件 登録完了`;
+    } else {
+      msg.className = 'msg ng';
+      msg.textContent = `${ng} 件失敗：` + errors.slice(0, 3).join(' / ') + (errors.length > 3 ? ' …他' : '');
     }
   };
 }
