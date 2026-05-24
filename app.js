@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.4.0-poc';
+const APP_VERSION = '0.5.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -274,6 +274,7 @@ function renderPicker() {
 }
 
 // ----- ビュー: 一覧 -----
+let _showDeleted = false; // Phase D: 管理者用「削除済を表示」トグル状態
 async function renderList() {
   setTitle('運転日誌');
   const view = document.getElementById('view');
@@ -281,6 +282,18 @@ async function renderList() {
   const items = document.getElementById('list-items');
   const msg = document.getElementById('list-msg');
   const countEl = document.getElementById('list-count');
+  const toolbar = document.querySelector('.list-toolbar');
+
+  // Phase D: 管理者のみ「削除済を表示」トグル
+  if (me.isAdmin && toolbar && !toolbar.querySelector('.admin-toggle')) {
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'admin-toggle';
+    toggleLabel.innerHTML = '<input type="checkbox" id="chk-show-deleted"> 削除済を表示';
+    toolbar.insertBefore(toggleLabel, toolbar.querySelector('#btn-refresh'));
+    const chk = toggleLabel.querySelector('#chk-show-deleted');
+    chk.checked = _showDeleted;
+    chk.onchange = () => { _showDeleted = chk.checked; refresh(); };
+  }
 
   const refresh = async () => {
     msg.className = 'msg'; msg.textContent = '読み込み中…';
@@ -295,10 +308,13 @@ async function renderList() {
     } else {
       document.getElementById('pending-banner').hidden = true;
     }
-    // サーバーから取得
+    // サーバーから取得（Phase D: showDeleted を引き渡し）
     try {
-      const j = await apiGet('list', { limit: 20 });
-      countEl.textContent = `${j.count + pending.length} 件（うち未送信 ${pending.length}）`;
+      const params = { limit: 20 };
+      if (_showDeleted) params.showDeleted = 'true';
+      const j = await apiGet('list', params);
+      const suffix = _showDeleted ? '（削除済含む）' : '';
+      countEl.textContent = `${j.count + pending.length} 件${suffix}（うち未送信 ${pending.length}）`;
       j.data.forEach(d => items.appendChild(renderLogCard(d, false)));
       msg.textContent = '';
       // キャッシュ
@@ -324,23 +340,34 @@ async function renderList() {
 }
 function renderLogCard(d, isPending) {
   const div = document.createElement('div');
-  div.className = 'log-item' + (isPending ? ' pending' : '');
+  // Phase D: 削除済フラグ判定
+  const delFlag = d['削除フラグ'];
+  const isDeleted = (delFlag === true || delFlag === 'TRUE' || delFlag === 'true');
+  div.className = 'log-item' + (isPending ? ' pending' : '') + (isDeleted ? ' deleted' : '');
   const date = formatDate(d['日時']);
   const km = d['走行距離（km)'] ?? d['走行距離(km)'] ?? '-';
   const fuel = d['給油(L)'] ? ` / 給油 ${d['給油(L)']}L` : '';
   const driver = d['運転者'] ? ` / 運転者 ${d['運転者']}` : '';
   const dataId = d['データID'] || '';
-  const editable = !isPending && dataId && canEdit(d);
+  // 削除済は管理者のみ「復活」ボタン、編集/削除は出さない
+  const editable = !isPending && dataId && !isDeleted && canEdit(d);
+  const restorable = !isPending && dataId && isDeleted && me.isAdmin;
+  let actionsHtml = '';
+  if (editable) {
+    actionsHtml = `<div class="actions"><button class="ghost small" data-edit="${escape(dataId)}">編集</button><button class="ghost small danger" data-del="${escape(dataId)}">削除</button></div>`;
+  } else if (restorable) {
+    actionsHtml = `<div class="actions"><span class="deleted-badge">削除済</span><button class="ghost small" data-restore="${escape(dataId)}">復活</button></div>`;
+  }
   div.innerHTML = `
     <div class="top">
-      <span>${date}${isPending ? ' <b style="color:#f1a500;">未送信</b>' : ''}</span>
+      <span>${date}${isPending ? ' <b style="color:#f1a500;">未送信</b>' : ''}${isDeleted ? ' <b style="color:#b3261e;">削除済</b>' : ''}</span>
       <span>${d['ETC 使用'] || d['ETC\n使用'] ? 'ETC ✓' : ''}</span>
     </div>
     <div class="vehicle">${escape(d['車種表示'] || '車種ID:' + d['車種'])}</div>
     <div class="nums">
       <b>${km} km</b> ／ ${d['発車前メータ'] || '?'} → ${d['到着後メータ'] || '?'}${fuel}${driver}
     </div>
-    ${editable ? `<div class="actions"><button class="ghost small" data-edit="${escape(dataId)}">編集</button><button class="ghost small danger" data-del="${escape(dataId)}">削除</button></div>` : ''}
+    ${actionsHtml}
   `;
   if (editable) {
     div.querySelector('[data-edit]').onclick = (ev) => {
@@ -351,8 +378,33 @@ function renderLogCard(d, isPending) {
       ev.preventDefault();
       await deleteRecord(dataId, d);
     };
+  } else if (restorable) {
+    div.querySelector('[data-restore]').onclick = async (ev) => {
+      ev.preventDefault();
+      await restoreRecord(dataId, d);
+    };
   }
   return div;
+}
+
+// Phase D: 削除済レコードを復活（管理者のみ）
+async function restoreRecord(dataId, record) {
+  const label = `${formatDate(record['日時'])} / ${record['車種表示'] || '車種ID:' + record['車種']}`;
+  if (!confirm(`このレコードを復活させますか？\n\n${label}`)) return;
+  if (!navigator.onLine) {
+    alert('オフラインでは復活できません。');
+    return;
+  }
+  try {
+    await apiPost('delete_log', { 'データID': dataId, restore: true }, { userId: cfg.userId });
+    if (location.hash === '#/list' || location.hash === '' || location.hash === '#') {
+      handleRoute();
+    } else {
+      go('#/list');
+    }
+  } catch (e) {
+    alert('復活失敗: ' + e.message);
+  }
 }
 
 // Phase C: レコード論理削除（確認ダイアログ付き）

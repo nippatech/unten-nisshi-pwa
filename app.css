@@ -200,6 +200,12 @@ button:disabled { opacity: 0.5; pointer-events: none; }
 }
 .log-item .actions button { padding: 4px 12px; font-size: 0.85rem; }
 .log-item .actions button.danger { color: var(--danger); border-color: var(--danger); }
+/* Phase D: 削除済表示 */
+.log-item.deleted { opacity: 0.55; background: #f9f6f6; border-left: 4px solid var(--danger); padding-left: 10px; }
+.log-item.deleted .vehicle, .log-item.deleted .nums { text-decoration: line-through; }
+.log-item .deleted-badge { display: inline-block; padding: 2px 10px; background: var(--danger); color: #fff; border-radius: 12px; font-size: 0.75rem; align-self: center; }
+.list-toolbar .admin-toggle { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-right: auto; margin-left: 12px; cursor: pointer; }
+.list-toolbar .admin-toggle input { margin: 0; }
 
 /* 社員ピッカー */
 .picker-list {
