@@ -192,6 +192,13 @@ button:disabled { opacity: 0.5; pointer-events: none; }
 .log-item .nums { font-size: 0.9rem; color: var(--muted); }
 .log-item .nums b { color: var(--text); }
 .log-item.pending { border-left: 4px solid #f1a500; padding-left: 10px; }
+.log-item .actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  gap: 6px;
+}
+.log-item .actions button { padding: 4px 12px; font-size: 0.85rem; }
 
 /* 社員ピッカー */
 .picker-list {

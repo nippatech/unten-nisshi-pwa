@@ -9,11 +9,40 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.2.0-poc';
+const APP_VERSION = '0.3.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
 const LS_USER_NAME = 'unten.user_name';
+
+// Phase B: 自分の権限情報（me APIの結果）をメモリにキャッシュ
+const me = {
+  isAdmin: false,
+  editWindowDays: 30,
+  loaded: false,
+};
+async function fetchMe() {
+  if (!cfg.url || !cfg.token || !cfg.userId) return;
+  try {
+    const j = await apiGet('me', { userId: cfg.userId });
+    me.isAdmin = !!j.isAdmin;
+    me.editWindowDays = j.editWindowDays || 30;
+    me.loaded = true;
+  } catch (e) {
+    console.warn('fetchMe failed', e);
+  }
+}
+// レコードを「自分が編集可能か」判定（PWA側）
+function canEdit(record) {
+  if (me.isAdmin) return true;
+  if (!record) return false;
+  const driver = String(record['運転者'] || '');
+  if (driver !== String(cfg.userId)) return false;
+  const d = record['日時'] ? new Date(record['日時']) : null;
+  if (!d || isNaN(d)) return false;
+  const diffDays = (Date.now() - d.getTime()) / 86400000;
+  return diffDays <= me.editWindowDays;
+}
 
 // PoCではマスタが整備されていないため、社員一覧をハードコード（将来は社員マスタAPIに差替え）
 const STAFF_FALLBACK = [
@@ -113,12 +142,12 @@ async function apiGet(action, params = {}) {
   if (!j.ok) throw new Error(j.error || 'API failed');
   return j;
 }
-async function apiPost(action, payload) {
+async function apiPost(action, payload, extra = {}) {
   if (!cfg.url || !cfg.token) throw new Error('未設定: GAS URL / Token');
   const r = await fetch(cfg.url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ token: cfg.token, action, payload }),
+    body: JSON.stringify({ token: cfg.token, action, payload, ...extra }),
     redirect: 'follow',
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -151,8 +180,14 @@ function handleRoute() {
     document.getElementById('page-title').textContent = '入力者選択';
     return renderPicker();
   }
-  const fn = routes[location.hash] || renderList;
-  fn();
+  // Phase B: #/edit/<dataId> ルートを動的解釈
+  const editMatch = location.hash.match(/^#\/edit\/(.+)$/);
+  if (editMatch) {
+    renderForm({ mode: 'edit', dataId: decodeURIComponent(editMatch[1]) });
+  } else {
+    const fn = routes[location.hash] || renderList;
+    fn();
+  }
   // ナビ active 表示
   document.querySelectorAll('.navbtn').forEach(b => {
     b.classList.toggle('active', b.dataset.route === location.hash);
@@ -227,10 +262,11 @@ function renderPicker() {
   STAFF_FALLBACK.forEach(s => {
     const b = document.createElement('button');
     b.innerHTML = `${s.name}<span class="pid">${s.id}</span>`;
-    b.onclick = () => {
+    b.onclick = async () => {
       cfg.userId = s.id;
       cfg.userName = s.name;
       whoLabel();
+      await fetchMe(); // Phase B: 自分の権限を取得
       go('#/list');
     };
     list.appendChild(b);
@@ -293,6 +329,8 @@ function renderLogCard(d, isPending) {
   const km = d['走行距離（km)'] ?? d['走行距離(km)'] ?? '-';
   const fuel = d['給油(L)'] ? ` / 給油 ${d['給油(L)']}L` : '';
   const driver = d['運転者'] ? ` / 運転者 ${d['運転者']}` : '';
+  const dataId = d['データID'] || '';
+  const editable = !isPending && dataId && canEdit(d);
   div.innerHTML = `
     <div class="top">
       <span>${date}${isPending ? ' <b style="color:#f1a500;">未送信</b>' : ''}</span>
@@ -302,19 +340,68 @@ function renderLogCard(d, isPending) {
     <div class="nums">
       <b>${km} km</b> ／ ${d['発車前メータ'] || '?'} → ${d['到着後メータ'] || '?'}${fuel}${driver}
     </div>
+    ${editable ? `<div class="actions"><button class="ghost small" data-edit="${escape(dataId)}">編集</button></div>` : ''}
   `;
+  if (editable) {
+    div.querySelector('[data-edit]').onclick = (ev) => {
+      ev.preventDefault();
+      go('#/edit/' + encodeURIComponent(dataId));
+    };
+  }
   return div;
 }
 
-// ----- ビュー: 入力フォーム -----
-async function renderForm() {
-  setTitle('新規入力');
+// ----- ビュー: 入力フォーム（新規 / 編集 共用） -----
+async function renderForm(opts = {}) {
+  const mode = opts.mode || 'new';
+  const editId = opts.dataId || '';
+  const isEdit = mode === 'edit';
+  setTitle(isEdit ? `編集 (ID: ${editId})` : '新規入力');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-form').content.cloneNode(true));
+  const h2 = view.querySelector('h2');
+  if (h2) h2.textContent = isEdit ? '編集' : '新規入力';
+  const submitBtn = document.getElementById('btn-submit');
+  if (submitBtn) submitBtn.textContent = isEdit ? '更新' : '登録';
 
-  // 日付の初期値（今日）
+  // 編集モード：対象レコード取得
+  let editRecord = null;
+  let editDestinations = [];
+  if (isEdit) {
+    try {
+      const jl = await apiGet('list', { limit: 200 });
+      editRecord = (jl.data || []).find(d => String(d['データID']) === String(editId));
+      if (!editRecord) {
+        alert('レコードが見つかりません: ' + editId);
+        return go('#/list');
+      }
+      if (!canEdit(editRecord)) {
+        alert('このレコードは編集できません（期間外または他人の入力）');
+        return go('#/list');
+      }
+      try {
+        const jd = await apiGet('destinations_for', { dataId: editId });
+        editDestinations = jd.data || [];
+      } catch (_) { editDestinations = []; }
+    } catch (e) {
+      alert('レコード取得失敗: ' + e.message);
+      return go('#/list');
+    }
+  }
+
+  // 日付の初期値
   const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('f-date').value = today;
+  if (isEdit && editRecord && editRecord['日時']) {
+    const d = new Date(editRecord['日時']);
+    if (!isNaN(d)) {
+      const ymd = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      document.getElementById('f-date').value = ymd;
+    } else {
+      document.getElementById('f-date').value = today;
+    }
+  } else {
+    document.getElementById('f-date').value = today;
+  }
 
   // 車種オプション読み込み（キャッシュ優先）
   const sel = document.getElementById('f-vehicle');
@@ -339,6 +426,17 @@ async function renderForm() {
     opt.dataset.user = v['使用者'] || '';
     sel.appendChild(opt);
   });
+  // 編集モード：既存値で各項目を埋める
+  if (isEdit && editRecord) {
+    if (editRecord['車種'] != null && editRecord['車種'] !== '') sel.value = String(editRecord['車種']);
+    document.getElementById('f-start').value = editRecord['発車前メータ'] ?? '';
+    document.getElementById('f-end').value = editRecord['到着後メータ'] ?? '';
+    const etcVal = editRecord['ETC 使用'] ?? editRecord['ETC\n使用'];
+    document.getElementById('f-etc').checked = (etcVal === true || etcVal === 'TRUE' || etcVal === 'true' || etcVal === 1);
+    document.getElementById('f-fuel').value = editRecord['給油(L)'] ?? '';
+    document.getElementById('f-alc').value = editRecord['アルコールチェック表示'] ?? '';
+    document.getElementById('f-memo').value = editRecord['備考'] ?? '';
+  }
 
   // 走行距離 自動計算
   const calcDist = () => {
@@ -396,8 +494,12 @@ async function renderForm() {
     destContainer.appendChild(row);
   };
   document.getElementById('btn-add-dest').onclick = () => addDestRow();
-  // 初期は1行
-  addDestRow();
+  // 編集モードなら既存行先で初期化、なければ1行
+  if (isEdit && editDestinations.length > 0) {
+    editDestinations.forEach(d => addDestRow({ '拠店': d['拠店'] || '', '行先': d['行先'] || '' }));
+  } else {
+    addDestRow();
+  }
 
   // 送信
   document.getElementById('form-new').onsubmit = async (ev) => {
@@ -429,6 +531,29 @@ async function renderForm() {
       'destinations': destinations,
     };
 
+    // 編集モードの送信
+    if (isEdit) {
+      if (!navigator.onLine) {
+        msg.className = 'msg ng';
+        msg.textContent = 'オフラインでは編集できません（オンラインになってからお試しください）';
+        btn.disabled = false;
+        return;
+      }
+      try {
+        payload['データID'] = editId;
+        const j = await apiPost('update_log', payload, { userId: cfg.userId });
+        msg.className = 'msg ok';
+        msg.textContent = `更新しました（権限: ${j.by || 'OK'}）`;
+        setTimeout(() => go('#/list'), 800);
+      } catch (e) {
+        msg.className = 'msg ng';
+        msg.textContent = `更新失敗: ${e.message}`;
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    // 新規登録
     if (!navigator.onLine) {
       // オフライン: キューに積む
       await dbAdd('pending', { payload, at: Date.now() });
@@ -534,3 +659,12 @@ setNetStatus();
 whoLabel();
 if (!location.hash) location.hash = '#/list';
 handleRoute();
+// Phase B: 起動時に自分の権限情報を取得して一覧の編集ボタン表示に反映
+(async () => {
+  if (cfg.url && cfg.token && cfg.userId) {
+    await fetchMe();
+    if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
+      handleRoute();
+    }
+  }
+})();
