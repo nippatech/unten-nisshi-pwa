@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.2-poc';
+const APP_VERSION = '0.9.3-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1181,13 +1181,20 @@ setNetStatus();
 whoLabel();
 if (!location.hash) location.hash = '#/list';
 handleRoute();
-// Phase B/E/G: 起動時に自分の権限と社員マスタを取得
+// Phase B/E/G/H: 起動時に権限・社員マスタ・確認者リストを取得
+// v0.9.3: 裏で list キャッシュも温める（直接 #/new で開いても発車前メータ自動補完が効くように）
 (async () => {
   if (cfg.url && cfg.token && cfg.userId) {
     await fetchMe();
     await fetchStaff(); // Phase G: 社員マスタ取得
     await fetchCheckers(); // Phase H: 確認者リスト取得
     document.querySelectorAll('.navbtn.admin-only').forEach(b => { b.hidden = !me.isAdmin; });
+    // 裏で list キャッシュを温める（await しない）
+    apiGet('list', { limit: 100 }).then(j => {
+      if (j.data && j.data.length > 0) {
+        dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
+      }
+    }).catch(() => {});
     if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
       handleRoute();
     }
