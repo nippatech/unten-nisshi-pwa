@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.3-poc';
+const APP_VERSION = '0.9.4-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -629,7 +629,14 @@ async function renderForm(opts = {}) {
       }
     }).catch(() => {});
   }
-  // 3. ハンドラを即座に登録（recentLogs はクロージャー参照、後で更新される）
+  // 3. v0.9.4: 手入力と自動入力を区別。ユーザーが手で打った値だけ保護、自動補完値は車種変更で上書き
+  const startInputElem = document.getElementById('f-start');
+  // 手入力検知：event.isTrusted=true はユーザー操作、=false は dispatchEvent
+  startInputElem.addEventListener('input', (e) => {
+    if (e.isTrusted) {
+      startInputElem.dataset.userInput = '1';
+    }
+  });
   const handleVehicleChange = () => {
     if (isEdit) return; // 編集モードは触らない
     const vehicleId = String(sel.value);
@@ -639,7 +646,11 @@ async function renderForm(opts = {}) {
       if (hint) hint.textContent = '';
       return;
     }
-    if (startInput.value !== '') return; // 既に手入力がある場合は上書きしない
+    // 手入力済みの場合のみ上書きしない（自動補完値は上書きOK）
+    if (startInput.dataset.userInput === '1') {
+      if (hint) hint.textContent = '（手入力のため自動補完を停止）';
+      return;
+    }
     if (recentLogs.length === 0) {
       if (hint) hint.textContent = '（過去データを取得中…車種を選び直してください）';
       return;
@@ -649,8 +660,13 @@ async function renderForm(opts = {}) {
     if (lastRecord && lastRecord['到着後メータ'] !== '' && lastRecord['到着後メータ'] != null) {
       startInput.value = lastRecord['到着後メータ'];
       if (hint) hint.textContent = `（前回到着 ${lastRecord['到着後メータ']} / ${formatDate(lastRecord['日時'])} から自動入力${recentLogsFetched ? '' : ' ・キャッシュ'}）`;
-      startInput.dispatchEvent(new Event('input'));
+      startInput.dispatchEvent(new Event('input')); // 走行距離再計算（isTrusted=falseなので userInput フラグは立たない）
     } else {
+      // この車種の過去レコードがなければ、前の値はクリアしておく
+      if (startInput.value !== '' && startInput.dataset.userInput !== '1') {
+        startInput.value = '';
+        startInput.dispatchEvent(new Event('input'));
+      }
       if (hint) hint.textContent = '（この車種の過去レコードが見つかりません）';
     }
   };
