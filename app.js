@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.5-poc';
+const APP_VERSION = '0.9.6-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -55,6 +55,43 @@ async function fetchStaff(includeRetired) {
 // 表示用の在職者だけのリスト
 function activeStaff() {
   return staffList.filter(s => !s['退職フラグ']);
+}
+
+// v0.9.6: 確認者リストから退職者を除外
+// 「アルコールチェック」シートには姓のみ（山田、神原…）が入っており、
+// 社員マスタは氏名フルネーム（山田 賢哉）。姓部分でマッチング。
+// 全員が退職している姓だけ除外。「その他」など社員でない選択肢は残す。
+function activeCheckers() {
+  // 社員マスタの在職者の姓のセット
+  const activeLastNames = new Set(
+    activeStaff().map(s => {
+      const name = String(s['氏名'] || '');
+      // 全角・半角スペースで分割して最初の要素（姓）
+      return name.split(/[\s\u3000]+/)[0].trim();
+    }).filter(Boolean)
+  );
+  // 退職者の姓のセット（在職者がいない姓だけが「全員退職」）
+  const retiredLastNames = new Set();
+  for (const s of staffList) {
+    if (s['退職フラグ']) {
+      const name = String(s['氏名'] || '');
+      const last = name.split(/[\s\u3000]+/)[0].trim();
+      if (last && !activeLastNames.has(last)) {
+        retiredLastNames.add(last);
+      }
+    }
+  }
+  // checkersList から除外
+  return checkersList.filter(c => {
+    const checker = String(c['確認者'] || '').trim();
+    if (!checker) return false;
+    // 「その他」「その他（仮）」など社員ではない選択肢は常に残す
+    if (checker.includes('その他') || checker.includes('（仮）')) return true;
+    // 社員マスタとの姓マッチ：在職者の姓に含まれる or 退職者の姓ではない場合は表示
+    // つまり「明示的に全員退職している姓」だけを除外
+    if (retiredLastNames.has(checker)) return false;
+    return true;
+  });
 }
 
 // Phase H: アルコールチェック確認者リスト
@@ -611,7 +648,7 @@ async function renderForm(opts = {}) {
   if (checkersList.length === 0) await fetchCheckers();
   const alcDl = document.getElementById('alc-options');
   if (alcDl) {
-    alcDl.innerHTML = checkersList.map(c => `<option value="${escape(c['確認者'])}">`).join('');
+    alcDl.innerHTML = activeCheckers().map(c => `<option value="${escape(c['確認者'])}">`).join('');
   }
   // Phase H: 行先用 datalist は行追加時に構築する
 
