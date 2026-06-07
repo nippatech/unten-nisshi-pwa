@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.6-poc';
+const APP_VERSION = '0.9.7-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -34,7 +34,9 @@ async function fetchMe() {
 }
 // Phase G: 社員マスタ（動的取得）
 let staffList = []; // [{社員ID, 氏名, 退職フラグ}]
-async function fetchStaff(includeRetired) {
+async function fetchStaff(includeRetired = true) {
+  // v0.9.7: デフォルトは全件取得（退職含む）。activeStaff()で在職フィルタ。
+  // activeCheckers()が退職判定するために staffList に退職者情報が必要。
   try {
     const params = includeRetired ? { all: 'true' } : {};
     const j = await apiGet('staff', params);
