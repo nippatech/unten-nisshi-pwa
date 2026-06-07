@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.9-poc';
+const APP_VERSION = '0.9.10-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -136,6 +136,19 @@ function canEdit(record) {
 const STAFF_FALLBACK = [
   { id: 'NIP006', name: '門田' },
 ];
+
+// v0.9.10: 「門田」は UI 上「管理者」と表示する（社員マスタは触らない＝過去データも維持）
+// 社員管理画面（renderStaff）だけは退職処理の混乱を防ぐため実名のまま。
+const ADMIN_DISPLAY_NAME = '管理者';
+const ADMIN_RAW_KEYS = new Set(['NIP006']);
+function displayStaffName(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return s;
+  if (ADMIN_RAW_KEYS.has(s)) return ADMIN_DISPLAY_NAME;
+  // 氏名先頭が「門田」（単独 or 「門田 ◯◯」など）も管理者扱い
+  if (s === '門田' || s.startsWith('門田 ') || s.startsWith('門田　')) return ADMIN_DISPLAY_NAME;
+  return s;
+}
 
 // ----- IndexedDB ヘルパ -----
 const DB_NAME = 'unten_nisshi';
@@ -290,7 +303,7 @@ function handleRoute() {
 function setTitle(t) { document.getElementById('page-title').textContent = t; }
 function whoLabel() {
   const w = document.getElementById('who');
-  w.textContent = cfg.userName ? cfg.userName : '';
+  w.textContent = cfg.userName ? displayStaffName(cfg.userName) : '';
 }
 function setNetStatus() {
   const el = document.getElementById('net-status');
@@ -362,7 +375,8 @@ async function renderPicker() {
   }
   visible.forEach(s => {
     const id = String(s['社員ID']);
-    const name = String(s['氏名'] || id);
+    const rawName = String(s['氏名'] || id);
+    const name = displayStaffName(rawName); // v0.9.10: 門田→管理者
     const b = document.createElement('button');
     // 社員IDが氏名と同じ場合はID表示を省略
     b.innerHTML = (id === name)
@@ -453,7 +467,7 @@ function renderLogCard(d, isPending) {
   const date = formatDate(d['日時']);
   const km = d['走行距離（km)'] ?? d['走行距離(km)'] ?? '-';
   const fuel = d['給油(L)'] ? ` / 給油 ${d['給油(L)']}L` : '';
-  const driver = d['運転者'] ? ` / 運転者 ${d['運転者']}` : '';
+  const driver = d['運転者'] ? ` / 運転者 ${displayStaffName(d['運転者'])}` : '';
   const dataId = d['データID'] || '';
   // 削除済は管理者のみ「復活」ボタン、編集/削除は出さない
   const editable = !isPending && dataId && !isDeleted && canEdit(d);
@@ -602,7 +616,7 @@ async function renderForm(opts = {}) {
   }
   driverSel.innerHTML = '<option value="">選択</option>' + visibleStaff.map(s => {
     const id = String(s['社員ID']);
-    const name = String(s['氏名'] || id);
+    const name = displayStaffName(String(s['氏名'] || id)); // v0.9.10
     const isSelected = (isEdit && editingDriver === id) || (!isEdit && cfg.userId === id);
     const retiredLabel = s['退職フラグ'] ? '【退職済】' : '';
     return `<option value="${escape(id)}"${isSelected ? ' selected' : ''}>${escape(name)}${retiredLabel}</option>`;
@@ -935,9 +949,9 @@ async function renderBulk() {
     // 日付
     const dateInput = `<input type="date" class="b-date" value="${escape(preset.date || new Date().toISOString().slice(0,10))}">`;
     // 運転者セレクト（社員マスタから、退職者除外）
-    const driverOpts = activeStaff().map(s => {
+    const driverOpts = activeStaff().map(s => { // v0.9.10: 表示時のみ管理者置換
       const id = String(s['社員ID']);
-      const name = String(s['氏名'] || id);
+      const name = displayStaffName(String(s['氏名'] || id));
       return `<option value="${escape(id)}"${preset.driver === id ? ' selected' : ''}>${escape(name)}</option>`;
     }).join('');
     const driverInput = `<select class="b-driver"><option value="">選択</option>${driverOpts}</select>`;
@@ -1191,7 +1205,7 @@ async function renderSettings() {
   setTitle('設定');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-settings').content.cloneNode(true));
-  document.getElementById('set-who').textContent = `${cfg.userName} (${cfg.userId})`;
+  document.getElementById('set-who').textContent = `${displayStaffName(cfg.userName)} (${cfg.userId})`;
   document.getElementById('set-url').textContent = cfg.url || '（未設定）';
   document.getElementById('set-token').textContent = cfg.token ? cfg.token.slice(0, 8) + '...' : '（未設定）';
   document.getElementById('ver').textContent = APP_VERSION;
