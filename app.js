@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.1-poc';
+const APP_VERSION = '0.9.2-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -602,35 +602,60 @@ async function renderForm(opts = {}) {
   }
   // Phase H: 行先用 datalist は行追加時に構築する
 
-  // Phase H: 発車前メータ自動補完（新規時のみ）
-  // 直近100件の運転日誌を取得しておき、車種選択時に同じ車種の最新「到着後メータ」を発車前にセット
+  // Phase H/v0.9.2: 発車前メータ自動補完（新規時のみ）
+  // 戦略: ①キャッシュから即時取得 ②並行で最新APIをfetch ③ハンドラ即登録
+  // これによりGAS応答が遅くてもユーザーが車種を選んだ瞬間にキャッシュベースで動く
   let recentLogs = [];
+  let recentLogsFetched = false; // 最新版が来たかどうか
   if (!isEdit) {
+    // 1. キャッシュから即座に取得
     try {
-      const j = await apiGet('list', { limit: 100 });
-      recentLogs = j.data || [];
+      const cached = await dbGet('cache', 'list_last');
+      if (cached?.value && Array.isArray(cached.value)) {
+        recentLogs = cached.value;
+      }
     } catch (_) {}
+    // 2. 並行して最新を取りに行く（await しない）
+    apiGet('list', { limit: 100 }).then(j => {
+      if (j.data && j.data.length > 0) {
+        recentLogs = j.data;
+        recentLogsFetched = true;
+        dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
+        // 既に車種が選ばれていてヒントが「過去レコードなし」だった場合は再試行
+        const startInput = document.getElementById('f-start');
+        if (sel.value && (!startInput || startInput.value === '')) {
+          sel.dispatchEvent(new Event('change'));
+        }
+      }
+    }).catch(() => {});
   }
-  sel.addEventListener('change', () => {
+  // 3. ハンドラを即座に登録（recentLogs はクロージャー参照、後で更新される）
+  const handleVehicleChange = () => {
     if (isEdit) return; // 編集モードは触らない
     const vehicleId = String(sel.value);
-    if (!vehicleId) return;
     const startInput = document.getElementById('f-start');
+    const hint = document.getElementById('f-start-hint');
+    if (!vehicleId) {
+      if (hint) hint.textContent = '';
+      return;
+    }
     if (startInput.value !== '') return; // 既に手入力がある場合は上書きしない
+    if (recentLogs.length === 0) {
+      if (hint) hint.textContent = '（過去データを取得中…車種を選び直してください）';
+      return;
+    }
     // 同じ車種の最新レコードを探す（listは新しい順）
     const lastRecord = recentLogs.find(r => String(r['車種']) === vehicleId);
     if (lastRecord && lastRecord['到着後メータ'] !== '' && lastRecord['到着後メータ'] != null) {
       startInput.value = lastRecord['到着後メータ'];
-      // ヒント表示
-      const hint = document.getElementById('f-start-hint');
-      if (hint) hint.textContent = `（前回到着 ${lastRecord['到着後メータ']} / ${formatDate(lastRecord['日時'])} から自動入力）`;
-      // 走行距離計算をトリガー
+      if (hint) hint.textContent = `（前回到着 ${lastRecord['到着後メータ']} / ${formatDate(lastRecord['日時'])} から自動入力${recentLogsFetched ? '' : ' ・キャッシュ'}）`;
       startInput.dispatchEvent(new Event('input'));
     } else {
-      const hint = document.getElementById('f-start-hint');
       if (hint) hint.textContent = '（この車種の過去レコードが見つかりません）';
     }
-  });
+  };
+  sel.addEventListener('change', handleVehicleChange);
+  sel.addEventListener('input', handleVehicleChange); // 念のため input イベントも
 
   // 走行距離 自動計算
   const calcDist = () => {
