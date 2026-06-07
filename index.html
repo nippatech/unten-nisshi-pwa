@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.9.10">
+<link rel="stylesheet" href="./app.css?v=0.9.11">
 </head>
 <body>
 <header id="topbar">
@@ -135,6 +135,16 @@
 </template>
 
 <template id="tpl-staff">
+  <section class="card" id="card-appsheet-import">
+    <h2>AppSheet版データ取り込み（管理者専用）</h2>
+    <p class="hint">並行運用中の AppSheet 版スプレッドシートから、PWA「データ」シートに重複なく追記します。判定キーは「データID」。同じIDがあればスキップします。</p>
+    <div class="row" style="gap:8px; flex-wrap:wrap;">
+      <button id="btn-appsheet-inspect" class="ghost" type="button">内訳を確認（書き込みなし）</button>
+      <button id="btn-appsheet-import" class="primary" type="button" disabled>取り込み実行</button>
+    </div>
+    <pre id="appsheet-result" class="appsheet-result" hidden></pre>
+    <p id="appsheet-msg" class="msg"></p>
+  </section>
   <section class="card">
     <h2>社員管理（管理者専用）</h2>
     <p class="hint">運転者ドロップダウンに表示される人を管理します。退職フラグを立てると、ドロップダウンから消えます（過去の入力データは残ります）。</p>
@@ -193,6 +203,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.9.10" defer></script>
+<script src="./app.js?v=0.9.11" defer></script>
 </body>
 </html>

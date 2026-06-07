@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.10-poc';
+const APP_VERSION = '0.9.11-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1091,6 +1091,79 @@ async function renderBulk() {
 }
 
 // ----- Phase G: ビュー: 社員管理（管理者専用） -----
+// v0.9.11: AppSheet 取り込みカードのバインド
+function bindAppsheetImport() {
+  const btnInspect = document.getElementById('btn-appsheet-inspect');
+  const btnImport = document.getElementById('btn-appsheet-import');
+  const result = document.getElementById('appsheet-result');
+  const msg = document.getElementById('appsheet-msg');
+  if (!btnInspect || !btnImport) return;
+
+  const setBusy = (b) => {
+    btnInspect.disabled = b;
+    if (b) btnImport.disabled = true;
+  };
+  const showResult = (obj) => {
+    result.hidden = false;
+    result.textContent = JSON.stringify(obj, null, 2);
+  };
+
+  btnInspect.onclick = async () => {
+    msg.className = 'msg'; msg.textContent = '確認中…'; setBusy(true);
+    try {
+      // ステップ1: 列差分・件数
+      const inspect = await apiGet('inspect_appsheet', { userId: cfg.userId });
+      // ステップ2: ドライランで取り込み件数
+      const dry = await apiPost('import_appsheet', { dryRun: true }, { userId: cfg.userId });
+      const summary = {
+        AppSheet側: {
+          総行数: inspect.appsheet.rowCount,
+          列: inspect.appsheet.headers,
+        },
+        PWA側: {
+          総行数: inspect.pwa.rowCount,
+          列: inspect.pwa.headers,
+        },
+        列の差分: {
+          両方にある: inspect.headerDiff.bothSides,
+          AppSheet側のみ: inspect.headerDiff.onlyAppsheet,
+          PWA側のみ: inspect.headerDiff.onlyPwa,
+        },
+        重複判定: {
+          キー列: inspect.duplicateCheck.keyColumn,
+          既存マッチ: dry.existingMatched,
+          取り込み対象: dry.toImport,
+        },
+        取り込みサンプル: dry.sample,
+      };
+      showResult(summary);
+      msg.className = 'msg ok';
+      msg.textContent = `取り込み対象: ${dry.toImport} 件（${inspect.appsheet.rowCount} 件中、${dry.existingMatched} 件は既存）`;
+      btnImport.disabled = dry.toImport === 0;
+    } catch (e) {
+      msg.className = 'msg ng'; msg.textContent = '失敗: ' + e.message;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  btnImport.onclick = async () => {
+    if (!confirm('AppSheet 版から PWA「データ」シートに追記します。よろしいですか？\n（重複データはスキップされます）')) return;
+    msg.className = 'msg'; msg.textContent = '取り込み実行中…'; setBusy(true);
+    btnImport.disabled = true;
+    try {
+      const r = await apiPost('import_appsheet', { dryRun: false }, { userId: cfg.userId });
+      showResult(r);
+      msg.className = 'msg ok';
+      msg.textContent = r.message || `${r.imported || 0} 件取り込みました`;
+    } catch (e) {
+      msg.className = 'msg ng'; msg.textContent = '失敗: ' + e.message;
+    } finally {
+      setBusy(false);
+    }
+  };
+}
+
 async function renderStaff() {
   if (!me.loaded) await fetchMe();
   if (!me.isAdmin) {
@@ -1100,6 +1173,9 @@ async function renderStaff() {
   setTitle('社員管理');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-staff').content.cloneNode(true));
+
+  // v0.9.11: AppSheet 取り込みカードのハンドラ
+  bindAppsheetImport();
 
   const listEl = document.getElementById('staff-list');
   const countEl = document.getElementById('staff-count');

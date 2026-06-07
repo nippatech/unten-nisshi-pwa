@@ -224,6 +224,21 @@ button:disabled { opacity: 0.5; pointer-events: none; }
 .bulk-progress .bulk-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .bulk-progress .bulk-stat { font-size: 0.85rem; color: var(--muted); }
 
+/* v0.9.11: AppSheet 取り込み結果プレビュー */
+.appsheet-result {
+  background: #f7f8fa;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 280px;
+  overflow: auto;
+  margin: 12px 0;
+}
+
 /* Phase G: 社員管理 */
 .staff-add { background: #f7f8fa; padding: 12px; border-radius: 8px; margin: 8px 0 12px; }
 .staff-add-row { display: grid; grid-template-columns: 1fr 1fr 100px; gap: 8px; align-items: center; }
