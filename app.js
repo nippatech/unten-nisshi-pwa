@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.4-poc';
+const APP_VERSION = '0.9.5-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -84,12 +84,9 @@ function canEdit(record) {
   return diffDays <= me.editWindowDays;
 }
 
-// PoCではマスタが整備されていないため、社員一覧をハードコード（将来は社員マスタAPIに差替え）
+// 万一 social マスタAPIが失敗したときのフォールバック（最低限：管理者 1名のみ）
 const STAFF_FALLBACK = [
   { id: 'NIP006', name: '門田' },
-  { id: 'NIP500', name: '受領担当' },
-  { id: 'NIP-A', name: '運転者A' },
-  { id: 'NIP-B', name: '運転者B' },
 ];
 
 // ----- IndexedDB ヘルパ -----
@@ -299,19 +296,32 @@ function renderConfig() {
 }
 
 // ----- ビュー: 社員選択 -----
-function renderPicker() {
+async function renderPicker() {
   setTitle('入力者選択');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-picker').content.cloneNode(true));
   const list = document.getElementById('picker-list');
-  STAFF_FALLBACK.forEach(s => {
+  // v0.9.5: 社員マスタの在職者から動的に選べるように
+  if (staffList.length === 0) {
+    list.innerHTML = '<p class="hint">社員マスタを読み込み中…</p>';
+    await fetchStaff();
+  }
+  list.innerHTML = '';
+  const visible = activeStaff();
+  if (visible.length === 0) {
+    list.innerHTML = '<p class="msg ng">社員マスタが取得できませんでした。管理者に連絡してください。</p>';
+    return;
+  }
+  visible.forEach(s => {
+    const id = String(s['社員ID']);
+    const name = String(s['氏名'] || id);
     const b = document.createElement('button');
-    b.innerHTML = `${s.name}<span class="pid">${s.id}</span>`;
+    b.innerHTML = `${escape(name)}<span class="pid">${escape(id)}</span>`;
     b.onclick = async () => {
-      cfg.userId = s.id;
-      cfg.userName = s.name;
+      cfg.userId = id;
+      cfg.userName = name;
       whoLabel();
-      await fetchMe(); // Phase B: 自分の権限を取得
+      await fetchMe(); // 自分の権限を取得
       go('#/list');
     };
     list.appendChild(b);
