@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.10.0-poc';
+const APP_VERSION = '0.10.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -416,11 +416,59 @@ async function renderList() {
     chk.onchange = () => { _showDeleted = chk.checked; refresh(); };
   }
 
+  // v0.10.1: ページング状態（「次の20件」ボタン）
+  const PAGE_SIZE = 20;
+  let loaded = 0;     // 表示済み件数（サーバー側レコードのみ）
+  let total = 0;      // サーバー側の総件数
+  let pendingCount = 0;
+
+  // 「次の20件」ボタンを一覧の下に動的生成
+  const moreBtn = document.createElement('button');
+  moreBtn.className = 'ghost';
+  moreBtn.style.cssText = 'display:block;width:100%;margin:10px 0;';
+  moreBtn.textContent = '次の20件を表示';
+  moreBtn.hidden = true;
+  items.after(moreBtn);
+
+  const updateCount = () => {
+    const suffix = _showDeleted ? '（削除済含む）' : '';
+    countEl.textContent = `全 ${total} 件中 ${loaded} 件表示${suffix}${pendingCount > 0 ? `（未送信 ${pendingCount}）` : ''}`;
+  };
+
+  const fetchPage = async (offset) => {
+    const params = { limit: PAGE_SIZE, offset: offset };
+    if (_showDeleted) params.showDeleted = 'true';
+    return apiGet('list', params);
+  };
+
+  const loadMore = async () => {
+    moreBtn.disabled = true;
+    moreBtn.textContent = '読み込み中…';
+    try {
+      const j = await fetchPage(loaded);
+      j.data.forEach(d => items.appendChild(renderLogCard(d, false)));
+      loaded += j.count;
+      total = j.total ?? total;
+      moreBtn.hidden = !j.hasMore;
+      updateCount();
+    } catch (e) {
+      msg.className = 'msg ng';
+      msg.textContent = `読み込み失敗: ${e.message}`;
+    } finally {
+      moreBtn.disabled = false;
+      moreBtn.textContent = '次の20件を表示';
+    }
+  };
+  moreBtn.onclick = loadMore;
+
   const refresh = async () => {
     msg.className = 'msg'; msg.textContent = '読み込み中…';
     items.innerHTML = '';
+    loaded = 0; total = 0;
+    moreBtn.hidden = true;
     // 未送信表示
     const pending = await dbAll('pending');
+    pendingCount = pending.length;
     if (pending.length > 0) {
       const banner = document.getElementById('pending-banner');
       banner.hidden = false;
@@ -429,16 +477,16 @@ async function renderList() {
     } else {
       document.getElementById('pending-banner').hidden = true;
     }
-    // サーバーから取得（Phase D: showDeleted を引き渡し）
+    // サーバーから取得（Phase D: showDeleted を引き渡し / v0.10.1: 1ページ目）
     try {
-      const params = { limit: 20 };
-      if (_showDeleted) params.showDeleted = 'true';
-      const j = await apiGet('list', params);
-      const suffix = _showDeleted ? '（削除済含む）' : '';
-      countEl.textContent = `${j.count + pending.length} 件${suffix}（うち未送信 ${pending.length}）`;
+      const j = await fetchPage(0);
       j.data.forEach(d => items.appendChild(renderLogCard(d, false)));
+      loaded = j.count;
+      total = j.total ?? j.count;
+      moreBtn.hidden = !j.hasMore;
+      updateCount();
       msg.textContent = '';
-      // キャッシュ
+      // キャッシュ（1ページ目のみ）
       dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
     } catch (e) {
       msg.className = 'msg ng';
