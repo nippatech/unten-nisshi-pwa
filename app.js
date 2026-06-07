@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.11-poc';
+const APP_VERSION = '0.10.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -262,6 +262,7 @@ const routes = {
   '#/new': renderForm,
   '#/bulk': renderBulk,
   '#/staff': renderStaff,
+  '#/pdf': renderPdf,
   '#/settings': renderSettings,
 };
 function go(hash) {
@@ -1277,6 +1278,120 @@ async function renderStaff() {
 }
 
 // ----- ビュー: 設定 -----
+// ----- ビュー: PDF出力（v0.10.0、管理者専用） -----
+async function renderPdf() {
+  if (!me.loaded) await fetchMe();
+  if (!me.isAdmin) {
+    alert('PDF出力は管理者のみ利用できます');
+    return go('#/list');
+  }
+  setTitle('PDF出力');
+  const view = document.getElementById('view');
+  view.appendChild(document.getElementById('tpl-pdf').content.cloneNode(true));
+
+  // 既定値: 当月1日〜今日
+  const now = new Date();
+  const z = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  document.getElementById('p-start').value = iso(new Date(now.getFullYear(), now.getMonth(), 1));
+  document.getElementById('p-end').value = iso(now);
+
+  const msg = document.getElementById('pdf-msg');
+  const results = document.getElementById('pdf-results');
+
+  // 車種（引退車種も含む。過去期間のPDFを出すため。引退は【引退】表示）
+  const vSel = document.getElementById('p-vehicle');
+  let vehicles = [];
+  try {
+    const j = await apiGet('vehicles');
+    vehicles = j.data;
+    dbPut('cache', { key: 'vehicles', value: vehicles, at: Date.now() }).catch(() => {});
+  } catch (e) {
+    const c = await dbGet('cache', 'vehicles');
+    vehicles = c?.value || [];
+  }
+  for (const v of vehicles) {
+    const name = String(v['車種'] || '').trim();
+    if (!name) continue;
+    const opt = document.createElement('option');
+    opt.value = String(v['ID']);
+    const prefix = isActiveVehicle(v) ? '' : '【引退】';
+    opt.textContent = prefix + name + (v['車輛番号'] ? ' / ' + String(v['車輛番号']).trim() : '');
+    vSel.appendChild(opt);
+  }
+
+  // 運転者（退職者も含む。過去期間のPDFを出すため）
+  const dSel = document.getElementById('p-driver');
+  if (staffList.length === 0) await fetchStaff();
+  for (const s of staffList) {
+    const opt = document.createElement('option');
+    opt.value = String(s['社員ID']);
+    opt.textContent = displayStaffName(String(s['氏名'] || s['社員ID'])) + (s['退職フラグ'] ? '（退職）' : '');
+    dSel.appendChild(opt);
+  }
+
+  // 印鑑（Driveの「ハンコ」フォルダから動的取得）
+  const hSel = document.getElementById('p-hanko');
+  try {
+    const j = await apiGet('hanko_list', { userId: cfg.userId });
+    for (const name of (j.data || [])) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name.replace(/\.(png|jpg|jpeg)$/i, '');
+      hSel.appendChild(opt);
+    }
+  } catch (e) {
+    msg.className = 'msg';
+    msg.textContent = '印鑑リストの取得に失敗しました（印鑑なしでは出力できます）: ' + e.message;
+  }
+
+  document.getElementById('form-pdf').onsubmit = async (ev) => {
+    ev.preventDefault();
+    if (!navigator.onLine) {
+      alert('PDF出力はオンライン時のみ可能です');
+      return;
+    }
+    const btn = document.getElementById('btn-pdf');
+    btn.disabled = true;
+    btn.textContent = 'PDF作成中…（30秒ほどかかることがあります）';
+    msg.className = 'msg';
+    msg.textContent = '';
+    results.innerHTML = '';
+    try {
+      const payload = {
+        '開始日': document.getElementById('p-start').value,
+        '終了日': document.getElementById('p-end').value,
+      };
+      if (vSel.value) payload['車種'] = vSel.value;
+      if (dSel.value) payload['運転者'] = dSel.value;
+      if (hSel.value) payload['印鑑'] = hSel.value;
+      const j = await apiPost('export_pdf', payload, { userId: cfg.userId });
+      const files = j.files || [];
+      msg.className = 'msg ok';
+      msg.textContent = `${files.length} 件のPDFを作成しました（対象 ${j.count} レコード）。Driveの「PDF」フォルダにも保存済みです。下のリンクからダウンロードできます。`;
+      for (const f of files) {
+        const bytes = Uint8Array.from(atob(f.base64), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const div = document.createElement('div');
+        div.style.margin = '8px 0';
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = f.name;
+        a.textContent = '⬇ ' + f.name;
+        div.appendChild(a);
+        results.appendChild(div);
+      }
+    } catch (e) {
+      msg.className = 'msg ng';
+      msg.textContent = '失敗: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'PDF作成';
+    }
+  };
+}
+
 async function renderSettings() {
   setTitle('設定');
   const view = document.getElementById('view');

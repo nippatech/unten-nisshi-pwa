@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.9.11">
+<link rel="stylesheet" href="./app.css?v=0.10.0">
 </head>
 <body>
 <header id="topbar">
@@ -25,6 +25,7 @@
   <button class="navbtn" data-route="#/new">新規</button>
   <button class="navbtn admin-only" data-route="#/bulk" hidden>一括</button>
   <button class="navbtn admin-only" data-route="#/staff" hidden>社員</button>
+  <button class="navbtn admin-only" data-route="#/pdf" hidden>PDF</button>
   <button class="navbtn" data-route="#/settings">設定</button>
 </nav>
 
@@ -203,6 +204,33 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.9.11" defer></script>
+<template id="tpl-pdf">
+  <section class="card">
+    <h2>PDF出力（管理者専用）</h2>
+    <p class="hint">AppSheet版と同じレイアウトの運転日誌PDFを作成します。作成したPDFはDriveの「PDF」フォルダにも保存されます。車種を選ばない場合は、期間内に走行のあった全車種を車種ごとに出力します。</p>
+    <form id="form-pdf" autocomplete="off">
+      <label>開始日
+        <input id="p-start" type="date" required>
+      </label>
+      <label>終了日
+        <input id="p-end" type="date" required>
+      </label>
+      <label>車種（未選択＝全車種）
+        <select id="p-vehicle"><option value="">— 全車種 —</option></select>
+      </label>
+      <label>運転者（未選択＝全員）
+        <select id="p-driver"><option value="">— 全員 —</option></select>
+      </label>
+      <label>印鑑（未選択＝なし）
+        <select id="p-hanko"><option value="">— なし —</option></select>
+      </label>
+      <button id="btn-pdf" class="primary big" type="submit">PDF作成</button>
+      <p id="pdf-msg" class="msg"></p>
+      <div id="pdf-results"></div>
+    </form>
+  </section>
+</template>
+
+<script src="./app.js?v=0.10.0" defer></script>
 </body>
 </html>
