@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.0-poc';
+const APP_VERSION = '0.9.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -601,6 +601,36 @@ async function renderForm(opts = {}) {
     alcDl.innerHTML = checkersList.map(c => `<option value="${escape(c['確認者'])}">`).join('');
   }
   // Phase H: 行先用 datalist は行追加時に構築する
+
+  // Phase H: 発車前メータ自動補完（新規時のみ）
+  // 直近100件の運転日誌を取得しておき、車種選択時に同じ車種の最新「到着後メータ」を発車前にセット
+  let recentLogs = [];
+  if (!isEdit) {
+    try {
+      const j = await apiGet('list', { limit: 100 });
+      recentLogs = j.data || [];
+    } catch (_) {}
+  }
+  sel.addEventListener('change', () => {
+    if (isEdit) return; // 編集モードは触らない
+    const vehicleId = String(sel.value);
+    if (!vehicleId) return;
+    const startInput = document.getElementById('f-start');
+    if (startInput.value !== '') return; // 既に手入力がある場合は上書きしない
+    // 同じ車種の最新レコードを探す（listは新しい順）
+    const lastRecord = recentLogs.find(r => String(r['車種']) === vehicleId);
+    if (lastRecord && lastRecord['到着後メータ'] !== '' && lastRecord['到着後メータ'] != null) {
+      startInput.value = lastRecord['到着後メータ'];
+      // ヒント表示
+      const hint = document.getElementById('f-start-hint');
+      if (hint) hint.textContent = `（前回到着 ${lastRecord['到着後メータ']} / ${formatDate(lastRecord['日時'])} から自動入力）`;
+      // 走行距離計算をトリガー
+      startInput.dispatchEvent(new Event('input'));
+    } else {
+      const hint = document.getElementById('f-start-hint');
+      if (hint) hint.textContent = '（この車種の過去レコードが見つかりません）';
+    }
+  });
 
   // 走行距離 自動計算
   const calcDist = () => {
