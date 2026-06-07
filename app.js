@@ -316,7 +316,10 @@ async function renderPicker() {
     const id = String(s['社員ID']);
     const name = String(s['氏名'] || id);
     const b = document.createElement('button');
-    b.innerHTML = `${escape(name)}<span class="pid">${escape(id)}</span>`;
+    // 社員IDが氏名と同じ場合はID表示を省略
+    b.innerHTML = (id === name)
+      ? escape(name)
+      : `${escape(name)}<span class="pid">${escape(id)}</span>`;
     b.onclick = async () => {
       cfg.userId = id;
       cfg.userName = name;
