@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.9.7-poc';
+const APP_VERSION = '0.9.8-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -63,6 +63,15 @@ function activeStaff() {
 // 「アルコールチェック」シートには姓のみ（山田、神原…）が入っており、
 // 社員マスタは氏名フルネーム（山田 賢哉）。姓部分でマッチング。
 // 全員が退職している姓だけ除外。「その他」など社員でない選択肢は残す。
+// v0.9.8: 引退車種の判定（部分一致・大文字小文字無視）
+const RETIRED_VEHICLE_KEYWORDS = ['ファイター', 'TONEZ', 'レンタカー'];
+function isActiveVehicle(v) {
+  const name = String(v['車種'] || '').trim();
+  if (!name) return false; // 空欄除外
+  const up = name.toUpperCase();
+  return !RETIRED_VEHICLE_KEYWORDS.some(kw => up.includes(kw.toUpperCase()));
+}
+
 function activeCheckers() {
   // 社員マスタの在職者の姓のセット
   const activeLastNames = new Set(
@@ -625,12 +634,20 @@ async function renderForm(opts = {}) {
   sel.innerHTML = vehicles.length === 0
     ? '<option value="">（車種マスタが取得できません）</option>'
     : '<option value="">選択してください</option>';
-  vehicles.forEach(v => {
+  // v0.9.8: 引退車種＋空欄を除外。ただし編集モードで現在の車種が引退車種の場合は残す
+  const editingVehicleId = isEdit && editRecord ? String(editRecord['車種'] || '') : '';
+  const visibleVehicles = vehicles.filter(v => {
+    if (isActiveVehicle(v)) return true;
+    if (editingVehicleId && String(v.ID) === editingVehicleId) return true;
+    return false;
+  });
+  visibleVehicles.forEach(v => {
     const opt = document.createElement('option');
     opt.value = v.ID;
-    // 使用者は別ドロップダウン（運転者）で選ぶので車種ラベルからは除外（退職者名の残留防止）
-    const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
-    opt.textContent = label;
+    // 引退車種が編集時に出る場合はラベルに【引退】を付ける
+    const isRetired = !isActiveVehicle(v);
+    const baseLabel = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
+    opt.textContent = isRetired ? `【引退】${baseLabel}` : baseLabel;
     opt.dataset.user = v['使用者'] || '';
     sel.appendChild(opt);
   });
