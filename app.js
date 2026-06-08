@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.10.5-poc';
+const APP_VERSION = '0.10.6-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -284,11 +284,15 @@ async function dbDel(store, key) {
   });
 }
 
+// v0.10.6: 社内配布APK向けに接続設定を既定値として埋め込み（初回設定を省略、入力者選択から開始）
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyAKtGvfOWv98qpeNQhBfOTOaRQX5FNk_XPrZoCw24KR4U8ew7kqlS3vjiqMUW3HDrPMQ/exec';
+const DEFAULT_TOKEN = 'nip-unten-poc-2026-a8c3f9e2';
+
 // ----- 設定 -----
 const cfg = {
-  get url() { return localStorage.getItem(LS_URL) || ''; },
+  get url() { return localStorage.getItem(LS_URL) || DEFAULT_GAS_URL; },
   set url(v) { localStorage.setItem(LS_URL, v); },
-  get token() { return localStorage.getItem(LS_TOKEN) || ''; },
+  get token() { return localStorage.getItem(LS_TOKEN) || DEFAULT_TOKEN; },
   set token(v) { localStorage.setItem(LS_TOKEN, v); },
   get userId() { return localStorage.getItem(LS_USER) || ''; },
   set userId(v) { localStorage.setItem(LS_USER, v); },
