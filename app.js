@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.10.3-poc';
+const APP_VERSION = '0.10.4-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -834,18 +834,17 @@ async function renderForm(opts = {}) {
     destRowSeq++;
     const row = document.createElement('div');
     row.className = 'dest-row';
-    // 拠店: input + datalist（既存から選択 or 新規入力）v0.10.3
-    const placeSel = document.createElement('input');
-    placeSel.type = 'text';
+    // 拠店: select（既存拠店のみ／新規拠店の追加は運転者側ではロック）v0.10.4
+    const placeSel = document.createElement('select');
     placeSel.className = 'dest-place';
-    placeSel.placeholder = '拠店を入力 or 選択';
-    placeSel.value = preset['拠店'] || '';
-    const placeDl = document.createElement('datalist');
-    const placeDlId = 'dest-place-dl-' + destRowSeq + '-' + Date.now();
-    placeDl.id = placeDlId;
-    placeSel.setAttribute('list', placeDlId);
     const places = [...new Set(destMaster.map(d => d['拠店']).filter(Boolean))];
-    placeDl.innerHTML = places.map(p => `<option value="${escape(p)}">`).join('');
+    let placeOpts = '<option value="">拠店を選択</option>'
+      + places.map(p => `<option value="${escape(p)}"${preset['拠店'] === p ? ' selected' : ''}>${escape(p)}</option>`).join('');
+    // 編集時、既存値がマスタに無ければ選択肢として補う（値の消失防止）
+    if (preset['拠店'] && places.indexOf(preset['拠店']) < 0) {
+      placeOpts += `<option value="${escape(preset['拠店'])}" selected>${escape(preset['拠店'])}</option>`;
+    }
+    placeSel.innerHTML = placeOpts;
     // Phase H: 行先 input + datalist（拠店連動 + 部分一致補完）
     const destInput = document.createElement('input');
     destInput.type = 'text';
@@ -862,7 +861,7 @@ async function renderForm(opts = {}) {
       dl.innerHTML = [...new Set(opts)].map(o => `<option value="${escape(o)}">`).join('');
     };
     fillDest();
-    placeSel.oninput = fillDest;
+    placeSel.onchange = fillDest;
     // 削除ボタン
     const rm = document.createElement('button');
     rm.type = 'button';
@@ -870,7 +869,6 @@ async function renderForm(opts = {}) {
     rm.textContent = '×';
     rm.onclick = () => row.remove();
     row.appendChild(placeSel);
-    row.appendChild(placeDl);
     row.appendChild(destInput);
     row.appendChild(dl);
     row.appendChild(rm);
