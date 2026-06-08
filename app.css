@@ -323,3 +323,35 @@ button.small { font-size: 0.85rem; padding: 6px 10px; }
   margin-top: 4px;
 }
 .log-item .dest-list span:not(:last-child)::after { content: " → "; }
+
+/* v0.10.5 アプリ更新通知バナー */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff7e6;
+  border-bottom: 1px solid #f0c36d;
+  color: #7a5200;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+.update-banner[hidden] { display: none !important; }
+.update-banner #update-text { flex: 1; }
+.update-banner .update-dl {
+  background: #1f3a5f;
+  color: #fff;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.update-banner #update-dismiss {
+  background: transparent;
+  border: none;
+  color: #7a5200;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+}

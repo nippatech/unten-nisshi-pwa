@@ -9,11 +9,80 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.10.4-poc';
+const APP_VERSION = '0.10.5-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
 const LS_USER_NAME = 'unten.user_name';
+
+// ===== v0.10.5 アプリ本体(APK)更新通知 =====
+const LS_APK_INSTALLED = 'unten.apk_installed';
+const LS_APK_DISMISS = 'unten.apk_dismissed';
+const APK_BASELINE = '0.10.1'; // 現在配布済みのAPK（?apk未付与の旧APK向けの初期値）
+const APK_MANIFEST_URL = './apk-latest.json';
+const APK_PKG = 'jp.co.nippatech.untennisshi';
+
+function isRunningInApk() {
+  try {
+    if (String(document.referrer || '').indexOf('android-app://' + APK_PKG) === 0) return true;
+  } catch (_) {}
+  const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const isAndroid = /Android/i.test(navigator.userAgent || '');
+  return !!(standalone && isAndroid);
+}
+function parseApkParam() {
+  try { const m = location.search.match(/[?&]apk=([^&]+)/); return m ? decodeURIComponent(m[1]) : ''; }
+  catch (_) { return ''; }
+}
+function cmpVer(a, b) {
+  const na = String(a || '0').replace(/[^0-9.].*$/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const nb = String(b || '0').replace(/[^0-9.].*$/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const len = Math.max(na.length, nb.length);
+  for (let i = 0; i < len; i++) { const x = na[i] || 0, y = nb[i] || 0; if (x > y) return 1; if (x < y) return -1; }
+  return 0;
+}
+function getInstalledApkVersion() {
+  const baked = parseApkParam();
+  if (baked) { try { localStorage.setItem(LS_APK_INSTALLED, baked); } catch (_) {} return baked; }
+  let v = '';
+  try { v = localStorage.getItem(LS_APK_INSTALLED) || ''; } catch (_) {}
+  if (!v) { v = APK_BASELINE; try { localStorage.setItem(LS_APK_INSTALLED, v); } catch (_) {} }
+  return v;
+}
+async function fetchApkManifest() {
+  const url = APK_MANIFEST_URL + (APK_MANIFEST_URL.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error('manifest HTTP ' + res.status);
+  return res.json();
+}
+function showUpdateBanner(manifest) {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  const dl = document.getElementById('update-dl');
+  const txt = document.getElementById('update-text');
+  const dateStr = manifest.date ? `（${manifest.date}）` : '';
+  txt.textContent = `新しいアプリ版 v${manifest.latestVersion}${dateStr} があります`;
+  dl.href = manifest.url || '#';
+  banner.hidden = false;
+  document.getElementById('update-dismiss').onclick = () => {
+    try { localStorage.setItem(LS_APK_DISMISS, manifest.latestVersion); } catch (_) {}
+    banner.hidden = true;
+  };
+}
+async function checkApkUpdate(opts) {
+  opts = opts || {};
+  const inApk = isRunningInApk();
+  if (!inApk && !opts.force) return { skipped: true, reason: 'not_in_apk' };
+  let manifest;
+  try { manifest = await fetchApkManifest(); } catch (e) { return { error: String(e && e.message || e) }; }
+  const installed = getInstalledApkVersion();
+  const latest = manifest.latestVersion || '0';
+  const hasUpdate = cmpVer(latest, installed) > 0;
+  let dismissed = '';
+  try { dismissed = localStorage.getItem(LS_APK_DISMISS) || ''; } catch (_) {}
+  if (inApk && hasUpdate && dismissed !== latest) showUpdateBanner(manifest);
+  return { inApk, installed, latest, hasUpdate, manifest };
+}
 
 // Phase B: 自分の権限情報（me APIの結果）をメモリにキャッシュ
 const me = {
@@ -1468,6 +1537,20 @@ async function renderSettings() {
     indexedDB.deleteDatabase(DB_NAME);
     location.reload();
   };
+  const btnUpd = document.getElementById('btn-check-update');
+  if (btnUpd) {
+    btnUpd.onclick = async () => {
+      const st = document.getElementById('update-status');
+      st.textContent = '確認中…';
+      const r = await checkApkUpdate({ force: true });
+      if (r.error) { st.textContent = '確認に失敗しました: ' + r.error; return; }
+      if (r.hasUpdate) {
+        st.innerHTML = `新しいアプリ版 v${escape(r.latest)} があります。<a href="${escape(r.manifest.url || '#')}" target="_blank" rel="noopener noreferrer">ダウンロード</a>`;
+      } else {
+        st.textContent = `最新です（入っているAPK: v${r.installed} ／ 公開中の最新: v${r.latest}）`;
+      }
+    };
+  }
 }
 
 // ----- 同期 -----
@@ -1526,6 +1609,8 @@ setNetStatus();
 whoLabel();
 if (!location.hash) location.hash = '#/list';
 handleRoute();
+// v0.10.5: アプリ本体(APK)の更新チェック（APK内のみバナー表示）
+checkApkUpdate().catch(() => {});
 // Phase B/E/G/H: 起動時に権限・社員マスタ・確認者リストを取得
 // v0.9.3: 裏で list キャッシュも温める（直接 #/new で開いても発車前メータ自動補完が効くように）
 (async () => {

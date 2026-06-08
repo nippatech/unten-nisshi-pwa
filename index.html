@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.10.2">
+<link rel="stylesheet" href="./app.css?v=0.10.5">
 </head>
 <body>
 <header id="topbar">
@@ -17,6 +17,12 @@
   <span id="who"></span>
   <span id="net-status" class="net-online" title="通信状態">●</span>
 </header>
+
+<div id="update-banner" class="update-banner" hidden>
+  <span id="update-text">新しいアプリ版があります</span>
+  <a id="update-dl" class="update-dl" href="#" target="_blank" rel="noopener noreferrer">ダウンロード</a>
+  <button id="update-dismiss" type="button" aria-label="閉じる">×</button>
+</div>
 
 <main id="view"></main>
 
@@ -128,6 +134,12 @@
       <button id="btn-edit-config" class="ghost">接続設定を編集</button>
       <button id="btn-clear-cache" class="ghost danger" hidden>ローカル全消去</button>
     </div>
+    <hr>
+    <p class="hint">アプリ本体（APK）の更新</p>
+    <div class="row">
+      <button id="btn-check-update" class="ghost" type="button">更新を確認</button>
+    </div>
+    <p id="update-status" class="hint"></p>
     <p class="hint">
       アプリのバージョン: <span id="ver"></span><br>
       未送信件数: <span id="set-pending">0</span>

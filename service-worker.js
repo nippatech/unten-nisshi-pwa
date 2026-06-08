@@ -10,7 +10,7 @@
  * フロント変更時は必ず CACHE_VERSION を上げること。
  */
 
-const CACHE_VERSION = 'v25-2026-06-08';
+const CACHE_VERSION = 'v26-2026-06-08';
 const SHELL = [
   './',
   './index.html',
@@ -42,6 +42,10 @@ self.addEventListener('fetch', (event) => {
   // GAS API は常にネットワーク（キャッシュしない）
   if (url.hostname === 'script.google.com' || url.hostname === 'script.googleusercontent.com') {
     return; // ブラウザのデフォルト動作
+  }
+  // v0.10.5: APKファイルと更新マニフェストはキャッシュしない（DL/常に最新）
+  if (url.pathname.endsWith('.apk') || url.pathname.endsWith('apk-latest.json')) {
+    return; // ブラウザのデフォルト動作（.apkはダウンロード、jsonは常にネット）
   }
   // それ以外は cache-first → network fallback
   event.respondWith(
