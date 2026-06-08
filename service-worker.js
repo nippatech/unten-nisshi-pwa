@@ -10,7 +10,7 @@
  * フロント変更時は必ず CACHE_VERSION を上げること。
  */
 
-const CACHE_VERSION = 'v22-2026-06-07';
+const CACHE_VERSION = 'v23-2026-06-08';
 const SHELL = [
   './',
   './index.html',

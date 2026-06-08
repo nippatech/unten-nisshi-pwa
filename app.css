@@ -121,6 +121,15 @@ input:focus, select:focus, textarea:focus {
   outline: 2px solid var(--primary);
   outline-offset: -1px;
 }
+/* v0.10.2: OSのフォント拡大を無視（Android対策） */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* v0.10.2: 車種・運転者など長文selectは少し小さく、折り返さず省略 */
+#f-vehicle, #f-driver, #p-vehicle, #p-driver, .bulk-table select {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .distance { font-size: 1rem; margin: 8px 0; color: var(--accent); font-weight: 600; }
 
 /* ボタン */
