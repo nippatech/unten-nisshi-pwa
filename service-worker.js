@@ -2,15 +2,16 @@
  * 運転日誌 Service Worker
  *
  * 役割:
- *   1. アプリシェル（HTML/CSS/JS）を初回アクセス時にキャッシュ
- *   2. 2回目以降はキャッシュから即座に表示（オフラインでも起動可能）
- *   3. GAS API リクエストはキャッシュしない（常に最新を取得）
+ *   1. アプリシェル（HTML/CSS/JS）は「ネット優先」で取得し、常に最新を表示
+ *      （オンライン時は必ず最新、オフライン時のみキャッシュにフォールバック）
+ *   2. 画像・manifest は「キャッシュ優先」で高速表示
+ *   3. GAS API / APK / 更新マニフェストはキャッシュしない
  *
- * バージョンを上げると古いキャッシュを破棄して新しい資産を取得する。
- * フロント変更時は必ず CACHE_VERSION を上げること。
+ * v32 (2026-06-09): cache-first だと中身の更新が反映されない問題を解消するため、
+ *   アプリシェル（html/js/css・ナビゲーション）を network-first に変更。
  */
 
-const CACHE_VERSION = 'v31-2026-06-09';
+const CACHE_VERSION = 'v32-2026-06-09';
 const SHELL = [
   './',
   './index.html',
@@ -23,7 +24,7 @@ const SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then(cache => cache.addAll(SHELL))
+    caches.open(CACHE_VERSION).then(cache => cache.addAll(SHELL)).catch(() => {})
   );
   self.skipWaiting();
 });
@@ -39,30 +40,46 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+
   // GAS API は常にネットワーク（キャッシュしない）
   if (url.hostname === 'script.google.com' || url.hostname === 'script.googleusercontent.com') {
-    return; // ブラウザのデフォルト動作
+    return;
   }
-  // v0.10.5: APKファイルと更新マニフェストはキャッシュしない（DL/常に最新）
+  // APKファイルと更新マニフェストはキャッシュしない
   if (url.pathname.endsWith('.apk') || url.pathname.endsWith('apk-latest.json')) {
-    return; // ブラウザのデフォルト動作（.apkはダウンロード、jsonは常にネット）
+    return;
   }
-  // それ以外は cache-first → network fallback
-  event.respondWith(
-    caches.match(event.request).then(hit => {
-      if (hit) return hit;
-      return fetch(event.request).then(resp => {
-        // 新しいリソースもキャッシュに追加（GETのみ）
-        if (event.request.method === 'GET' && resp.ok && resp.type !== 'opaque') {
+
+  // アプリシェル（ナビゲーション or html/js/css）は network-first
+  const isShell = event.request.mode === 'navigate'
+    || /\.(?:html|js|css)$/.test(url.pathname)
+    || url.pathname.endsWith('/');
+
+  if (isShell) {
+    event.respondWith(
+      fetch(event.request).then(resp => {
+        if (event.request.method === 'GET' && resp && resp.ok && resp.type !== 'opaque') {
           const copy = resp.clone();
           caches.open(CACHE_VERSION).then(c => c.put(event.request, copy));
         }
         return resp;
-      }).catch(() => {
-        // ネットワークもダメな時は index.html を返す（SPAの基本動作）
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
+      }).catch(() =>
+        caches.match(event.request).then(hit => hit || caches.match('./index.html'))
+      )
+    );
+    return;
+  }
+
+  // それ以外（画像・manifest等）は cache-first → network fallback
+  event.respondWith(
+    caches.match(event.request).then(hit => {
+      if (hit) return hit;
+      return fetch(event.request).then(resp => {
+        if (event.request.method === 'GET' && resp && resp.ok && resp.type !== 'opaque') {
+          const copy = resp.clone();
+          caches.open(CACHE_VERSION).then(c => c.put(event.request, copy));
         }
+        return resp;
       });
     })
   );
