@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.10.7-poc';
+const APP_VERSION = '0.12.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -217,6 +217,20 @@ function displayStaffName(raw) {
   // 氏名先頭が「門田」（単独 or 「門田 ◯◯」など）も管理者扱い
   if (s === '門田' || s.startsWith('門田 ') || s.startsWith('門田　')) return ADMIN_DISPLAY_NAME;
   return s;
+}
+
+// v0.12.0: 到着後メーター異常値チェック（禁止=block / 警告=warn）
+const DIST_BLOCK_MAX = 2000;
+const DIST_WARN_MAX = 500;
+function validateDistance(startRaw, endRaw) {
+  const s = parseFloat(startRaw), e = parseFloat(endRaw);
+  if (isNaN(s) || isNaN(e)) return { level: 'ok' };
+  const dist = e - s;
+  if (dist < 0) return { level: 'block', dist, message: `到着後メーター（${e}）が発車前メーター（${s}）より小さいです。メーターは戻らないので数値を確認してください。` };
+  if (dist > DIST_BLOCK_MAX) return { level: 'block', dist, message: `走行距離が ${dist.toLocaleString()}km になっています。2000kmを超えるため登録できません（桁の打ち間違いの可能性があります）。` };
+  if (dist === 0) return { level: 'warn', dist, message: `走行距離が 0km です（発車前と到着後が同じ）。このまま登録しますか？` };
+  if (dist > DIST_WARN_MAX) return { level: 'warn', dist, message: `走行距離が ${dist.toLocaleString()}km と大きめです。このまま登録しますか？` };
+  return { level: 'ok', dist };
 }
 
 // ----- IndexedDB ヘルパ -----
@@ -963,6 +977,11 @@ async function renderForm(opts = {}) {
     btn.disabled = true;
     msg.textContent = '送信中…';
 
+    // v0.12.0: 到着後メーター異常値チェック
+    const _vchk = validateDistance(document.getElementById('f-start').value, document.getElementById('f-end').value);
+    if (_vchk.level === 'block') { msg.className = 'msg ng'; msg.textContent = _vchk.message; btn.disabled = false; return; }
+    if (_vchk.level === 'warn') { if (!confirm(_vchk.message)) { msg.className = 'msg'; msg.textContent = ''; btn.disabled = false; return; } }
+
     // 行先データ収集
     const destinations = [];
     document.querySelectorAll('.dest-row').forEach(r => {
@@ -1149,6 +1168,7 @@ async function renderBulk() {
     }
     // バリデーション
     const payloads = [];
+    const bulkWarnings = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const date = r.querySelector('.b-date').value;
@@ -1163,6 +1183,14 @@ async function renderBulk() {
         return;
       }
       r.style.background = '';
+      const _bv = validateDistance(start, end);
+      if (_bv.level === 'block') {
+        msg.className = 'msg ng';
+        msg.textContent = `${i+1}行目: ${_bv.message}`;
+        r.style.background = '#fde7e7';
+        return;
+      }
+      if (_bv.level === 'warn') bulkWarnings.push(`${i+1}行目: ${_bv.message.replace('このまま登録しますか？','').trim()}`);
       payloads.push({
         rowEl: r,
         index: i,
@@ -1177,6 +1205,13 @@ async function renderBulk() {
           '運転者': driver,
         }
       });
+    }
+    // v0.12.0: 警告行があればまとめて確認
+    if (bulkWarnings.length > 0) {
+      if (!confirm('以下の行は走行距離が通常と異なります。このまま全件登録しますか？\n\n' + bulkWarnings.join('\n'))) {
+        msg.className = 'msg'; msg.textContent = '送信を中止しました';
+        return;
+      }
     }
     // 並列送信
     progress.innerHTML = `<div class="bulk-bar"><span style="width:0%"></span></div><div class="bulk-stat">0 / ${payloads.length}</div>`;
