@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.13.0-poc';
+const APP_VERSION = '0.13.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -989,6 +989,24 @@ async function renderForm(opts = {}) {
     const btn = document.getElementById('btn-submit');
     btn.disabled = true;
     msg.textContent = '送信中…';
+
+    // v0.13.1: 必須項目チェック（新規のみ。ETC・備考・給油は任意）
+    if (!isEdit) {
+      const reqErrors = [];
+      if (!document.getElementById('f-date').value) reqErrors.push('日時');
+      if (!document.getElementById('f-vehicle').value) reqErrors.push('車種');
+      if (document.getElementById('f-start').value === '') reqErrors.push('発車前メータ');
+      if (document.getElementById('f-end').value === '') reqErrors.push('到着後メータ');
+      if (!document.getElementById('f-alc').value.trim()) reqErrors.push('アルコールチェック確認者');
+      const hasDest = Array.from(document.querySelectorAll('.dest-row')).some(r => (r.querySelector('.dest-name')?.value || '').trim() !== '');
+      if (!hasDest) reqErrors.push('行先');
+      if (reqErrors.length > 0) {
+        msg.className = 'msg ng';
+        msg.textContent = '必須項目が未入力です: ' + reqErrors.join('、');
+        btn.disabled = false;
+        return;
+      }
+    }
 
     // v0.12.0: 到着後メーター異常値チェック
     const _vchk = validateDistance(document.getElementById('f-start').value, document.getElementById('f-end').value);
