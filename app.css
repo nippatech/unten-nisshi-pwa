@@ -355,3 +355,34 @@ button.small { font-size: 0.85rem; padding: 6px 10px; }
   cursor: pointer;
   padding: 2px 6px;
 }
+
+/* v0.13.0 行先サジェスト（縦リスト・大きめタップ領域） */
+.dest-name-wrap { position: relative; flex: 1; min-width: 0; }
+.dest-name-wrap .dest-name { width: 100%; }
+.dest-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid #c7ccd4;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-top: 3px;
+  -webkit-overflow-scrolling: touch;
+}
+.dest-suggest[hidden] { display: none !important; }
+.dest-suggest-item {
+  padding: 13px 14px;
+  font-size: 1rem;
+  line-height: 1.4;
+  border-bottom: 1px solid #eef0f3;
+  cursor: pointer;
+  white-space: normal;
+  word-break: break-all;
+}
+.dest-suggest-item:last-child { border-bottom: 0; }
+.dest-suggest-item:active { background: #eaf2fb; }

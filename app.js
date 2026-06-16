@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.12.0-poc';
+const APP_VERSION = '0.13.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -932,23 +932,37 @@ async function renderForm(opts = {}) {
       placeOpts += `<option value="${escape(preset['拠店'])}" selected>${escape(preset['拠店'])}</option>`;
     }
     placeSel.innerHTML = placeOpts;
-    // Phase H: 行先 input + datalist（拠店連動 + 部分一致補完）
+    // v0.13.0: 行先は自前の縦サジェストリスト（拠店連動 + 部分一致絞り込み + 自由入力）
+    const destWrap = document.createElement('div');
+    destWrap.className = 'dest-name-wrap';
     const destInput = document.createElement('input');
     destInput.type = 'text';
     destInput.className = 'dest-name';
     destInput.placeholder = '行先を入力 or 選択';
     destInput.value = preset['行先'] || '';
-    const dl = document.createElement('datalist');
-    const dlId = 'dest-dl-' + destRowSeq + '-' + Date.now();
-    dl.id = dlId;
-    destInput.setAttribute('list', dlId);
-    const fillDest = () => {
+    destInput.autocomplete = 'off';
+    const panel = document.createElement('div');
+    panel.className = 'dest-suggest';
+    panel.hidden = true;
+    const renderSuggest = () => {
       const place = placeSel.value.trim();
-      const opts = destMaster.filter(d => !place || d['拠店'] === place).map(d => d['行先']).filter(Boolean);
-      dl.innerHTML = [...new Set(opts)].map(o => `<option value="${escape(o)}">`).join('');
+      const q = destInput.value.trim().toLowerCase();
+      let opts = [...new Set(destMaster.filter(d => !place || d['拠店'] === place).map(d => d['行先']).filter(Boolean))];
+      if (q) opts = opts.filter(o => String(o).toLowerCase().includes(q));
+      opts = opts.slice(0, 100);
+      if (opts.length === 0) { panel.hidden = true; return; }
+      panel.innerHTML = opts.map(o => `<div class="dest-suggest-item">${escape(o)}</div>`).join('');
+      Array.from(panel.querySelectorAll('.dest-suggest-item')).forEach((el, idx) => {
+        el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); destInput.value = opts[idx]; panel.hidden = true; });
+      });
+      panel.hidden = false;
     };
-    fillDest();
-    placeSel.onchange = fillDest;
+    destInput.addEventListener('focus', renderSuggest);
+    destInput.addEventListener('input', renderSuggest);
+    destInput.addEventListener('blur', () => { setTimeout(() => { panel.hidden = true; }, 150); });
+    placeSel.onchange = () => { destInput.value = ''; renderSuggest(); };
+    destWrap.appendChild(destInput);
+    destWrap.appendChild(panel);
     // 削除ボタン
     const rm = document.createElement('button');
     rm.type = 'button';
@@ -956,8 +970,7 @@ async function renderForm(opts = {}) {
     rm.textContent = '×';
     rm.onclick = () => row.remove();
     row.appendChild(placeSel);
-    row.appendChild(destInput);
-    row.appendChild(dl);
+    row.appendChild(destWrap);
     row.appendChild(rm);
     destContainer.appendChild(row);
   };
