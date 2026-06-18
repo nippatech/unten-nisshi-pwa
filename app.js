@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.13.2-poc';
+const APP_VERSION = '0.13.3-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1309,7 +1309,7 @@ function bindAppsheetImport() {
       // ステップ1: 列差分・件数
       const inspect = await apiGet('inspect_appsheet', { userId: cfg.userId });
       // ステップ2: ドライランで取り込み件数
-      const dry = await apiPost('import_appsheet', { dryRun: true }, { userId: cfg.userId });
+      const dry = await apiPost('import_appsheet', {}, { userId: cfg.userId, dryRun: true });
       const summary = {
         AppSheet側: {
           総行数: inspect.appsheet.rowCount,
@@ -1347,7 +1347,7 @@ function bindAppsheetImport() {
     msg.className = 'msg'; msg.textContent = '取り込み実行中…'; setBusy(true);
     btnImport.disabled = true;
     try {
-      const r = await apiPost('import_appsheet', { dryRun: false }, { userId: cfg.userId });
+      const r = await apiPost('import_appsheet', {}, { userId: cfg.userId, dryRun: false });
       showResult(r);
       msg.className = 'msg ok';
       msg.textContent = r.message || `${r.imported || 0} 件取り込みました`;

@@ -11,7 +11,7 @@
  *   アプリシェル（html/js/css・ナビゲーション）を network-first に変更。
  */
 
-const CACHE_VERSION = 'v32-2026-06-09';
+const CACHE_VERSION = 'v33-2026-06-09';
 const SHELL = [
   './',
   './index.html',
