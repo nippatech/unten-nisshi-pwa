@@ -9,11 +9,23 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.13.3-poc';
+const APP_VERSION = '0.14.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
 const LS_USER_NAME = 'unten.user_name';
+
+// v0.14.0: 管理者パスワード認証
+// adminToken は sessionStorage に保持＝アプリを閉じるとクリア（門田さんの選択「毎回入力」）。
+const SS_ADMIN_TOKEN = 'unten.admin_token';
+function getAdminToken() { try { return sessionStorage.getItem(SS_ADMIN_TOKEN) || ''; } catch (_) { return ''; } }
+function setAdminToken(v) { try { sessionStorage.setItem(SS_ADMIN_TOKEN, v); } catch (_) {} }
+function clearAdminToken() { try { sessionStorage.removeItem(SS_ADMIN_TOKEN); } catch (_) {} }
+
+// v0.14.0: 運転者ごとの「前回使った車両」を記憶（localStorage、運転者IDごと）
+const LS_LAST_VEHICLE_PREFIX = 'unten.last_vehicle.';
+function getLastVehicleForDriver(driverId) { try { return localStorage.getItem(LS_LAST_VEHICLE_PREFIX + driverId) || ''; } catch (_) { return ''; } }
+function setLastVehicleForDriver(driverId, vehicleId) { try { if (driverId && vehicleId) localStorage.setItem(LS_LAST_VEHICLE_PREFIX + driverId, String(vehicleId)); } catch (_) {} }
 
 // ===== v0.10.5 アプリ本体(APK)更新通知 =====
 const LS_APK_INSTALLED = 'unten.apk_installed';
@@ -85,18 +97,30 @@ async function checkApkUpdate(opts) {
 }
 
 // Phase B: 自分の権限情報（me APIの結果）をメモリにキャッシュ
+// v0.14.0: serverEligible（userIdが管理者IDか）と adminPasswordSet（GASにパスワード設定済か）を分離。
+//   実効的な管理者権限 me.isAdmin = serverEligible && (パスワード未設定 or adminToken保持)。
 const me = {
   isAdmin: false,
+  serverEligible: false,
+  adminPasswordSet: false,
   editWindowDays: 30,
   loaded: false,
 };
+// 実効的な管理者フラグを再計算（serverEligible / adminPasswordSet / adminToken から）
+function recomputeAdmin() {
+  if (!me.serverEligible) { me.isAdmin = false; return; }
+  if (!me.adminPasswordSet) { me.isAdmin = true; return; } // 移行期間：パスワード未設定なら従来通り
+  me.isAdmin = !!getAdminToken();
+}
 async function fetchMe() {
   if (!cfg.url || !cfg.token || !cfg.userId) return;
   try {
     const j = await apiGet('me', { userId: cfg.userId });
-    me.isAdmin = !!j.isAdmin;
+    me.serverEligible = !!j.isAdmin;
+    me.adminPasswordSet = !!j.adminPasswordSet;
     me.editWindowDays = j.editWindowDays || 30;
     me.loaded = true;
+    recomputeAdmin();
   } catch (e) {
     console.warn('fetchMe failed', e);
   }
@@ -321,6 +345,9 @@ async function apiGet(action, params = {}) {
   u.searchParams.set('action', action);
   u.searchParams.set('token', cfg.token);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  // v0.14.0: 管理者トークンがあれば自動付与（管理者GETの認可に使用）
+  const at = getAdminToken();
+  if (at) u.searchParams.set('adminToken', at);
   const r = await fetch(u.toString(), { method: 'GET' });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const j = await r.json();
@@ -332,13 +359,67 @@ async function apiPost(action, payload, extra = {}) {
   const r = await fetch(cfg.url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ token: cfg.token, action, payload, ...extra }),
+    // v0.14.0: 管理者トークンを自動付与（extra で上書き可能）
+    body: JSON.stringify({ token: cfg.token, action, payload, adminToken: getAdminToken(), ...extra }),
     redirect: 'follow',
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'API failed');
   return j;
+}
+
+// ----- v0.14.0: 管理者ログイン -----
+// パスワードをGASに送って照合。成功で adminToken を受け取り sessionStorage に保持する。
+async function adminLogin(password) {
+  const j = await apiPost('admin_login', { password }); // 失敗時は apiPost が throw
+  if (j.adminToken) {
+    setAdminToken(j.adminToken);
+    recomputeAdmin();
+  }
+  return j;
+}
+// 管理者ログインのモーダルを表示。成功=true / キャンセル=false を返す。
+function showAdminLogin() {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;';
+    ov.innerHTML = `
+      <div class="card" style="max-width:340px;width:100%;margin:0;">
+        <h2 style="margin-top:0;">管理者ログイン</h2>
+        <p class="hint">管理者機能を使うにはパスワードが必要です。</p>
+        <label>パスワード
+          <input id="adm-pw" type="password" autocomplete="off">
+        </label>
+        <div class="row" style="margin-top:8px;">
+          <button id="adm-cancel" class="ghost" type="button">キャンセル</button>
+          <button id="adm-ok" class="primary" type="button">ログイン</button>
+        </div>
+        <p id="adm-msg" class="msg"></p>
+      </div>`;
+    document.body.appendChild(ov);
+    const pw = ov.querySelector('#adm-pw');
+    const msg = ov.querySelector('#adm-msg');
+    const okBtn = ov.querySelector('#adm-ok');
+    const close = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector('#adm-cancel').onclick = () => close(false);
+    const submit = async () => {
+      const v = pw.value;
+      if (!v) { msg.className = 'msg ng'; msg.textContent = 'パスワードを入力してください'; return; }
+      msg.className = 'msg'; msg.textContent = '確認中…';
+      okBtn.disabled = true;
+      try {
+        await adminLogin(v);
+        close(true);
+      } catch (e) {
+        msg.className = 'msg ng'; msg.textContent = 'ログイン失敗: ' + e.message;
+        okBtn.disabled = false; pw.value = ''; pw.focus();
+      }
+    };
+    okBtn.onclick = submit;
+    pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    setTimeout(() => pw.focus(), 50);
+  });
 }
 
 // ----- ルーター -----
@@ -465,16 +546,29 @@ async function renderPicker() {
     const id = String(s['社員ID']);
     const rawName = String(s['氏名'] || id);
     const name = displayStaffName(rawName); // v0.9.10: 門田→管理者
+    const isAdminEntry = ADMIN_RAW_KEYS.has(id); // v0.14.0: 管理者はパスワード要求
     const b = document.createElement('button');
     // 社員IDが氏名と同じ場合はID表示を省略
     b.innerHTML = (id === name)
       ? escape(name)
       : `${escape(name)}<span class="pid">${escape(id)}</span>`;
+    if (isAdminEntry) b.innerHTML += '<span class="pid">🔒</span>';
     b.onclick = async () => {
+      if (isAdminEntry) {
+        // パスワード設定済みかを確認（未設定なら移行期間としてパスワードなしで通す）
+        let pwSet = false;
+        try { const probe = await apiGet('me', { userId: id }); pwSet = !!probe.adminPasswordSet; } catch (_) {}
+        if (pwSet) {
+          const ok = await showAdminLogin();
+          if (!ok) return; // ログインしないと管理者にはなれない（選択をキャンセル）
+        }
+      } else {
+        clearAdminToken(); // 一般ユーザーに切替えたら管理者状態を解除
+      }
       cfg.userId = id;
       cfg.userName = name;
       whoLabel();
-      await fetchMe(); // 自分の権限を取得
+      await fetchMe(); // 自分の権限を取得（adminToken と合わせて me.isAdmin を再計算）
       go('#/list');
     };
     list.appendChild(b);
@@ -840,7 +934,9 @@ async function renderForm(opts = {}) {
         recentLogs = j.data;
         recentLogsFetched = true;
         dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
-        // 既に車種が選ばれていてヒントが「過去レコードなし」だった場合は再試行
+        // v0.14.0: 最新データで前回車両を再プリセット（キャッシュが空/古かった場合に効く）
+        applyVehiclePreset(driverSel.value || cfg.userId);
+        // 既に車種が選ばれていてメータ未補完なら、メータだけ補完
         const startInput = document.getElementById('f-start');
         if (sel.value && (!startInput || startInput.value === '')) {
           sel.dispatchEvent(new Event('change'));
@@ -891,6 +987,39 @@ async function renderForm(opts = {}) {
   };
   sel.addEventListener('change', handleVehicleChange);
   sel.addEventListener('input', handleVehicleChange); // 念のため input イベントも
+
+  // v0.14.0: 「以前に使った車両」の自動セット（運転者ごと）
+  // 手動で車種を選んだら（isTrusted=true）以後の自動セットを止める。
+  sel.addEventListener('change', (e) => { if (e.isTrusted) sel.dataset.userChosen = '1'; });
+  // 指定運転者の前回車両ID（①recentLogsから その運転者の最新車種 ②無ければ端末メモリ）
+  function findLastVehicleForDriver(driverId) {
+    if (!driverId) return '';
+    for (const rec of recentLogs) {
+      if (String(rec['運転者']) === String(driverId)) {
+        const vid = String(rec['車種'] || '').trim();
+        if (vid) return vid;
+      }
+    }
+    return getLastVehicleForDriver(driverId); // フォールバック: 端末メモリ
+  }
+  // 前回車両を車種ドロップダウンにプリセットし、メータ自動補完を誘発
+  function applyVehiclePreset(driverId) {
+    if (isEdit) return;                       // 編集モードは触らない
+    if (sel.dataset.userChosen === '1') return; // 手動選択を尊重
+    const vid = findLastVehicleForDriver(driverId);
+    if (!vid) return;
+    // 引退車種・空欄は選択肢から除外済み。選択肢に無ければプリセットしない（過去の表示は別途維持）
+    const exists = Array.from(sel.options).some(o => String(o.value) === String(vid));
+    if (!exists) return;
+    if (String(sel.value) !== String(vid)) sel.value = String(vid);
+    sel.dispatchEvent(new Event('change'));   // メータ自動補完を誘発（isTrusted=false）
+  }
+  if (!isEdit) {
+    // 初期表示時に、現在の運転者の前回車両をプリセット
+    applyVehiclePreset(driverSel.value || cfg.userId);
+    // 管理者の代理入力で運転者を変えたら、その運転者の前回車両に追従（手動選択時は除く）
+    driverSel.addEventListener('change', () => { applyVehiclePreset(driverSel.value || cfg.userId); });
+  }
 
   // 走行距離 自動計算
   const calcDist = () => {
@@ -1061,6 +1190,8 @@ async function renderForm(opts = {}) {
     }
 
     // 新規登録
+    // v0.14.0: この運転者の「前回車両」を端末に記憶（次回フォームで自動セット）
+    setLastVehicleForDriver(selectedDriver, payload['車種']);
     if (!navigator.onLine) {
       // オフライン: キューに積む
       await dbAdd('pending', { payload, at: Date.now() });
@@ -1587,6 +1718,7 @@ async function renderPdf() {
 }
 
 async function renderSettings() {
+  if (!me.loaded) await fetchMe();
   setTitle('設定');
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-settings').content.cloneNode(true));
@@ -1597,10 +1729,46 @@ async function renderSettings() {
   const pending = await dbAll('pending');
   document.getElementById('set-pending').textContent = pending.length;
 
+  // v0.14.0: 管理者ログイン状態の表示と操作（管理者IDかつパスワード設定済のときのみ）
+  const whoP = document.getElementById('set-who').closest('p');
+  if (whoP && me.serverEligible && me.adminPasswordSet) {
+    const wrap = document.createElement('p');
+    const refreshAdminUI = () => {
+      wrap.innerHTML = '';
+      const span = document.createElement('span');
+      const btn = document.createElement('button');
+      btn.className = 'ghost'; btn.type = 'button';
+      btn.style.marginLeft = '8px';
+      if (me.isAdmin) {
+        span.textContent = '管理者: ✅ ログイン中';
+        btn.textContent = '管理者ログアウト';
+        btn.onclick = () => {
+          clearAdminToken(); recomputeAdmin();
+          document.querySelectorAll('.navbtn.admin-only').forEach(x => { x.hidden = !me.isAdmin; });
+          go('#/list');
+        };
+      } else {
+        span.textContent = '管理者: 🔒 未ログイン';
+        btn.textContent = '管理者ログイン';
+        btn.onclick = async () => {
+          const ok = await showAdminLogin();
+          if (ok) {
+            document.querySelectorAll('.navbtn.admin-only').forEach(x => { x.hidden = !me.isAdmin; });
+            refreshAdminUI();
+          }
+        };
+      }
+      wrap.appendChild(span); wrap.appendChild(btn);
+    };
+    refreshAdminUI();
+    whoP.after(wrap);
+  }
+
   document.getElementById('btn-change-user').onclick = () => go('#/picker');
   document.getElementById('btn-edit-config').onclick = () => go('#/config');
   document.getElementById('btn-clear-cache').onclick = async () => {
     if (!confirm('全てのローカルデータ（設定・未送信を含む）を消去します。よろしいですか？')) return;
+    clearAdminToken();
     localStorage.clear();
     const db = await openDB();
     db.close();
@@ -1686,6 +1854,9 @@ checkApkUpdate().catch(() => {});
 (async () => {
   if (cfg.url && cfg.token && cfg.userId) {
     await fetchMe();
+    // v0.14.0「毎回入力」: 管理者IDだが、この起動でまだ未ログイン（adminToken無し）なら
+    // 入力者選択へ誘導して再ログインを促す。一般ユーザー・パスワード未設定時は従来通り。
+    const adminNeedsLogin = me.serverEligible && me.adminPasswordSet && !getAdminToken();
     await fetchStaff(); // Phase G: 社員マスタ取得
     await fetchCheckers(); // Phase H: 確認者リスト取得
     document.querySelectorAll('.navbtn.admin-only').forEach(b => { b.hidden = !me.isAdmin; });
@@ -1695,7 +1866,9 @@ checkApkUpdate().catch(() => {});
         dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
       }
     }).catch(() => {});
-    if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
+    if (adminNeedsLogin) {
+      go('#/picker');
+    } else if (location.hash === '' || location.hash === '#/list' || location.hash === '#') {
       handleRoute();
     }
   }

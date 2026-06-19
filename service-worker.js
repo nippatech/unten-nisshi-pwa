@@ -9,9 +9,10 @@
  *
  * v32 (2026-06-09): cache-first だと中身の更新が反映されない問題を解消するため、
  *   アプリシェル（html/js/css・ナビゲーション）を network-first に変更。
+ * v34 (2026-06-20): v0.14.0（管理者パスワード認証・前回車両の自動セット）。
  */
 
-const CACHE_VERSION = 'v33-2026-06-09';
+const CACHE_VERSION = 'v34-2026-06-20';
 const SHELL = [
   './',
   './index.html',
