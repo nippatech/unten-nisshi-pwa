@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.1-poc';
+const APP_VERSION = '0.14.2-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -23,9 +23,24 @@ function setAdminToken(v) { try { sessionStorage.setItem(SS_ADMIN_TOKEN, v); } c
 function clearAdminToken() { try { sessionStorage.removeItem(SS_ADMIN_TOKEN); } catch (_) {} }
 
 // v0.14.0: 運転者ごとの「前回使った車両」を記憶（localStorage、運転者IDごと）
+// v0.14.2: 車種IDだけでなく、その車種の最新到着後メータも合わせて {v, m} で保存。
+//   旧形式（車種IDの文字列のみ）も読めるよう後方互換。返り値: {v, m} or null
 const LS_LAST_VEHICLE_PREFIX = 'unten.last_vehicle.';
-function getLastVehicleForDriver(driverId) { try { return localStorage.getItem(LS_LAST_VEHICLE_PREFIX + driverId) || ''; } catch (_) { return ''; } }
-function setLastVehicleForDriver(driverId, vehicleId) { try { if (driverId && vehicleId) localStorage.setItem(LS_LAST_VEHICLE_PREFIX + driverId, String(vehicleId)); } catch (_) {} }
+function getLastVehicleForDriver(driverId) {
+  try {
+    const raw = localStorage.getItem(LS_LAST_VEHICLE_PREFIX + driverId) || '';
+    if (!raw) return null;
+    if (raw.charAt(0) === '{') { const o = JSON.parse(raw); return { v: String(o.v || ''), m: o.m }; }
+    return { v: raw, m: '' }; // 旧形式（車種IDのみ）
+  } catch (_) { return null; }
+}
+function setLastVehicleForDriver(driverId, vehicleId, meter) {
+  try {
+    if (driverId && vehicleId) {
+      localStorage.setItem(LS_LAST_VEHICLE_PREFIX + driverId, JSON.stringify({ v: String(vehicleId), m: (meter == null ? '' : meter) }));
+    }
+  } catch (_) {}
+}
 
 // ===== v0.10.5 アプリ本体(APK)更新通知 =====
 const LS_APK_INSTALLED = 'unten.apk_installed';
@@ -935,7 +950,7 @@ async function renderForm(opts = {}) {
         recentLogsFetched = true;
         dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
         // v0.14.0: 最新データで前回車両を再プリセット（キャッシュが空/古かった場合に効く）
-        applyVehiclePreset(driverSel.value || cfg.userId);
+        localPreset(driverSel.value || cfg.userId);
         // 既に車種が選ばれていてメータ未補完なら、メータだけ補完
         const startInput = document.getElementById('f-start');
         if (sel.value && (!startInput || startInput.value === '')) {
@@ -991,57 +1006,63 @@ async function renderForm(opts = {}) {
   // v0.14.0: 「以前に使った車両」の自動セット（運転者ごと）
   // 手動で車種を選んだら（isTrusted=true）以後の自動セットを止める。
   sel.addEventListener('change', (e) => { if (e.isTrusted) sel.dataset.userChosen = '1'; });
-  // 指定運転者の前回車両ID（①recentLogsから その運転者の最新車種 ②無ければ端末メモリ）
-  function findLastVehicleForDriver(driverId) {
-    if (!driverId) return '';
-    for (const rec of recentLogs) {
-      if (String(rec['運転者']) === String(driverId)) {
-        const vid = String(rec['車種'] || '').trim();
-        if (vid) return vid;
-      }
-    }
-    return getLastVehicleForDriver(driverId); // フォールバック: 端末メモリ
-  }
-  // 指定車種IDを車種ドロップダウンに設定（選択肢に在ればtrue）。メータ自動補完を誘発。
-  function setVehicle(vid) {
+  // 指定車種IDをドロップダウンに設定し、メータ自動補完を誘発。選択肢に在ればtrue。
+  //   meterFallback: その車種の最新到着後メータ（直近100件に無くメータが空のままの場合の保険）
+  function setVehicleAndMeter(vid, meterFallback) {
     if (!vid) return false;
     const exists = Array.from(sel.options).some(o => String(o.value) === String(vid));
     if (!exists) return false; // 引退車種・空欄は選択肢に無いのでプリセットしない
     if (String(sel.value) !== String(vid)) sel.value = String(vid);
-    sel.dispatchEvent(new Event('change')); // メータ自動補完を誘発（isTrusted=false）
+    sel.dispatchEvent(new Event('change')); // handleVehicleChange がrecentLogsからメータ補完を試みる
+    // recentLogsに無くメータが空のままなら、保険のメータで補完
+    const startInput = document.getElementById('f-start');
+    const hint = document.getElementById('f-start-hint');
+    if (startInput && startInput.value === '' && startInput.dataset.userInput !== '1' && meterFallback !== '' && meterFallback != null) {
+      startInput.value = meterFallback;
+      if (hint) hint.textContent = `（前回到着 ${meterFallback} から自動入力）`;
+      startInput.dispatchEvent(new Event('input'));
+    }
     return true;
   }
-  // 前回車両を即時プリセット（ローカル情報のみ）。設定できたら true。
-  function applyVehiclePreset(driverId) {
-    if (isEdit) return false;                       // 編集モードは触らない
-    if (sel.dataset.userChosen === '1') return false; // 手動選択を尊重
-    return setVehicle(findLastVehicleForDriver(driverId));
+  // ローカル情報（①recentLogs ②端末メモリ）で即時プリセット。設定できたら true。
+  function localPreset(driverId) {
+    if (isEdit || sel.dataset.userChosen === '1' || !driverId) return false;
+    // ① recentLogs: その運転者の最新車種（メータはrecentLogsから新鮮に補完されるので保険不要）
+    for (const rec of recentLogs) {
+      if (String(rec['運転者']) === String(driverId)) {
+        const vid = String(rec['車種'] || '').trim();
+        if (vid && setVehicleAndMeter(vid, '')) return true;
+      }
+    }
+    // ② 端末メモリ {v, m}（起動時の先読みや前回入力で温められている）
+    const mem = getLastVehicleForDriver(driverId);
+    if (mem && mem.v) return setVehicleAndMeter(mem.v, mem.m);
+    return false;
   }
-  // v0.14.1: ローカルで見つからなければサーバーに全データ走査を依頼（直近100件の外でも前回車両を取得）
+  const vehicleHint = document.getElementById('f-vehicle-hint');
+  // v0.14.1/0.14.2: ローカルで見つからなければサーバーに全データ走査を依頼。
+  //   待つ間は車種欄に「確認中…」を表示（ユーザーが空欄を見て手入力しないように）。
   async function presetVehicle(driverId) {
-    if (isEdit) return;
-    if (sel.dataset.userChosen === '1') return;
-    if (applyVehiclePreset(driverId)) return; // ①ローカルで即時プリセットできたら終わり
+    if (isEdit || sel.dataset.userChosen === '1') return;
+    if (localPreset(driverId)) { if (vehicleHint) vehicleHint.textContent = ''; return; } // ①即時
     if (!driverId) return;
+    if (vehicleHint) vehicleHint.textContent = '⏳ 前回車両を確認中…';
     try {
       const j = await apiGet('last_vehicle', { driver: driverId });
-      if (!j || !j.found) return;
-      // 非同期の間に状況が変わっていないか確認（手動選択／運転者切替）
-      if (sel.dataset.userChosen === '1') return;
-      if ((driverSel.value || cfg.userId) !== String(driverId)) return;
-      const vid = String(j['車種'] || '').trim();
-      if (!setVehicle(vid)) return;
-      setLastVehicleForDriver(driverId, vid); // 端末メモリにも記録（次回から即時）
-      // その車種が直近100件に無くメータが空のままなら、サーバーが返した最新メータで補完
-      const startInput = document.getElementById('f-start');
-      const hint = document.getElementById('f-start-hint');
-      const m = j['到着後メータ'];
-      if (startInput && startInput.value === '' && startInput.dataset.userInput !== '1' && m !== '' && m != null) {
-        startInput.value = m;
-        if (hint) hint.textContent = `（前回到着 ${m} から自動入力）`;
-        startInput.dispatchEvent(new Event('input'));
+      // 非同期の間に手動選択／運転者切替があれば中止
+      if (sel.dataset.userChosen === '1' || (driverSel.value || cfg.userId) !== String(driverId)) {
+        if (vehicleHint) vehicleHint.textContent = '';
+        return;
       }
-    } catch (_) {}
+      if (j && j.found && setVehicleAndMeter(String(j['車種'] || ''), j['到着後メータ'])) {
+        setLastVehicleForDriver(driverId, String(j['車種'] || ''), j['到着後メータ']); // 次回から即時
+        if (vehicleHint) vehicleHint.textContent = '';
+      } else {
+        if (vehicleHint) vehicleHint.textContent = '（前回車両なし。手動で選んでください）';
+      }
+    } catch (_) {
+      if (vehicleHint) vehicleHint.textContent = '（前回車両の取得に失敗。手動で選んでください）';
+    }
   }
   if (!isEdit) {
     // 初期表示時に、現在の運転者の前回車両をプリセット（ローカル→サーバーの順）
@@ -1219,8 +1240,8 @@ async function renderForm(opts = {}) {
     }
 
     // 新規登録
-    // v0.14.0: この運転者の「前回車両」を端末に記憶（次回フォームで自動セット）
-    setLastVehicleForDriver(selectedDriver, payload['車種']);
+    // v0.14.0/0.14.2: この運転者の「前回車両」と、その車種の最新メータ（＝今回の到着後）を端末に記憶
+    setLastVehicleForDriver(selectedDriver, payload['車種'], payload['到着後メータ']);
     if (!navigator.onLine) {
       // オフライン: キューに積む
       await dbAdd('pending', { payload, at: Date.now() });
@@ -1894,6 +1915,10 @@ checkApkUpdate().catch(() => {});
       if (j.data && j.data.length > 0) {
         dbPut('cache', { key: 'list_last', value: j.data, at: Date.now() }).catch(() => {});
       }
+    }).catch(() => {});
+    // v0.14.2: 自分の前回車両を起動時に先読みして端末メモリへ（次回の新規フォームを待ち時間ゼロに）
+    apiGet('last_vehicle', { driver: cfg.userId }).then(j => {
+      if (j && j.found && j['車種']) setLastVehicleForDriver(cfg.userId, String(j['車種']), j['到着後メータ']);
     }).catch(() => {});
     if (adminNeedsLogin) {
       go('#/picker');
