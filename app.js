@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.3-poc';
+const APP_VERSION = '0.14.4-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -792,6 +792,22 @@ async function deleteRecord(dataId, record) {
   }
 }
 
+// v0.14.4: 行先サジェストを「外側タップ」で閉じる（blur依存をやめてリストをスクロール可能に）。
+//   document に一度だけ登録。タップ位置が属さない .dest-row のパネルだけ閉じる。
+let _destOutsideBound = false;
+function bindDestOutsideClose() {
+  if (_destOutsideBound) return;
+  _destOutsideBound = true;
+  document.addEventListener('pointerdown', (ev) => {
+    document.querySelectorAll('.dest-row').forEach(r => {
+      if (!r.contains(ev.target)) {
+        const p = r.querySelector('.dest-suggest');
+        if (p) p.hidden = true;
+      }
+    });
+  });
+}
+
 // ----- ビュー: 入力フォーム（新規 / 編集 共用） -----
 async function renderForm(opts = {}) {
   // Phase F: 管理者判定をフォーム描画前に確実に取得
@@ -1095,6 +1111,7 @@ async function renderForm(opts = {}) {
 
   // 行先データ UI 構築
   const destContainer = document.getElementById('f-destinations');
+  bindDestOutsideClose(); // v0.14.4: サジェストを外側タップで閉じる（スクロール可能化）
   let destRowSeq = 0;
   const addDestRow = (preset = {}) => {
     destRowSeq++;
@@ -1132,13 +1149,15 @@ async function renderForm(opts = {}) {
       if (opts.length === 0) { panel.hidden = true; return; }
       panel.innerHTML = opts.map(o => `<div class="dest-suggest-item">${escape(o)}</div>`).join('');
       Array.from(panel.querySelectorAll('.dest-suggest-item')).forEach((el, idx) => {
-        el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); destInput.value = opts[idx]; panel.hidden = true; });
+        // v0.14.4: click で選択。pointerdown+preventDefault はタッチのスクロールを妨げるため使わない。
+        el.addEventListener('click', () => { destInput.value = opts[idx]; panel.hidden = true; });
       });
       panel.hidden = false;
     };
     destInput.addEventListener('focus', renderSuggest);
     destInput.addEventListener('input', renderSuggest);
-    destInput.addEventListener('blur', () => { setTimeout(() => { panel.hidden = true; }, 150); });
+    // v0.14.4: blur→hide は廃止（リストをスクロールしようと触れると即閉じてしまうため）。
+    //   閉じるのは「外側タップ」で行う（bindDestOutsideClose、renderForm で一度だけ登録）。
     placeSel.onchange = () => { destInput.value = ''; renderSuggest(); };
     destWrap.appendChild(destInput);
     destWrap.appendChild(panel);

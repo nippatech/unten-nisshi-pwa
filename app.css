@@ -382,10 +382,12 @@ button.small { font-size: 0.85rem; padding: 6px 10px; }
   border: 1px solid #c7ccd4;
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,.18);
-  max-height: 46vh;
+  max-height: 50vh;
   overflow-y: auto;
   margin-top: 3px;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 .dest-suggest[hidden] { display: none !important; }
 .dest-suggest-item {
