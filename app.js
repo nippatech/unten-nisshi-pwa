@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.2-poc';
+const APP_VERSION = '0.14.3-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1142,15 +1142,19 @@ async function renderForm(opts = {}) {
     placeSel.onchange = () => { destInput.value = ''; renderSuggest(); };
     destWrap.appendChild(destInput);
     destWrap.appendChild(panel);
-    // 削除ボタン
+    // v0.14.3: 縦並び — 1行目に[拠店＋削除]、2行目に行先（全幅）
+    const line1 = document.createElement('div');
+    line1.className = 'dest-line1';
     const rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'rm';
     rm.textContent = '×';
+    rm.setAttribute('aria-label', 'この行先を削除');
     rm.onclick = () => row.remove();
-    row.appendChild(placeSel);
+    line1.appendChild(placeSel);
+    line1.appendChild(rm);
+    row.appendChild(line1);
     row.appendChild(destWrap);
-    row.appendChild(rm);
     destContainer.appendChild(row);
   };
   document.getElementById('btn-add-dest').onclick = () => addDestRow();
