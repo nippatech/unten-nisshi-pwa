@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.0-poc';
+const APP_VERSION = '0.14.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1002,23 +1002,52 @@ async function renderForm(opts = {}) {
     }
     return getLastVehicleForDriver(driverId); // フォールバック: 端末メモリ
   }
-  // 前回車両を車種ドロップダウンにプリセットし、メータ自動補完を誘発
-  function applyVehiclePreset(driverId) {
-    if (isEdit) return;                       // 編集モードは触らない
-    if (sel.dataset.userChosen === '1') return; // 手動選択を尊重
-    const vid = findLastVehicleForDriver(driverId);
-    if (!vid) return;
-    // 引退車種・空欄は選択肢から除外済み。選択肢に無ければプリセットしない（過去の表示は別途維持）
+  // 指定車種IDを車種ドロップダウンに設定（選択肢に在ればtrue）。メータ自動補完を誘発。
+  function setVehicle(vid) {
+    if (!vid) return false;
     const exists = Array.from(sel.options).some(o => String(o.value) === String(vid));
-    if (!exists) return;
+    if (!exists) return false; // 引退車種・空欄は選択肢に無いのでプリセットしない
     if (String(sel.value) !== String(vid)) sel.value = String(vid);
-    sel.dispatchEvent(new Event('change'));   // メータ自動補完を誘発（isTrusted=false）
+    sel.dispatchEvent(new Event('change')); // メータ自動補完を誘発（isTrusted=false）
+    return true;
+  }
+  // 前回車両を即時プリセット（ローカル情報のみ）。設定できたら true。
+  function applyVehiclePreset(driverId) {
+    if (isEdit) return false;                       // 編集モードは触らない
+    if (sel.dataset.userChosen === '1') return false; // 手動選択を尊重
+    return setVehicle(findLastVehicleForDriver(driverId));
+  }
+  // v0.14.1: ローカルで見つからなければサーバーに全データ走査を依頼（直近100件の外でも前回車両を取得）
+  async function presetVehicle(driverId) {
+    if (isEdit) return;
+    if (sel.dataset.userChosen === '1') return;
+    if (applyVehiclePreset(driverId)) return; // ①ローカルで即時プリセットできたら終わり
+    if (!driverId) return;
+    try {
+      const j = await apiGet('last_vehicle', { driver: driverId });
+      if (!j || !j.found) return;
+      // 非同期の間に状況が変わっていないか確認（手動選択／運転者切替）
+      if (sel.dataset.userChosen === '1') return;
+      if ((driverSel.value || cfg.userId) !== String(driverId)) return;
+      const vid = String(j['車種'] || '').trim();
+      if (!setVehicle(vid)) return;
+      setLastVehicleForDriver(driverId, vid); // 端末メモリにも記録（次回から即時）
+      // その車種が直近100件に無くメータが空のままなら、サーバーが返した最新メータで補完
+      const startInput = document.getElementById('f-start');
+      const hint = document.getElementById('f-start-hint');
+      const m = j['到着後メータ'];
+      if (startInput && startInput.value === '' && startInput.dataset.userInput !== '1' && m !== '' && m != null) {
+        startInput.value = m;
+        if (hint) hint.textContent = `（前回到着 ${m} から自動入力）`;
+        startInput.dispatchEvent(new Event('input'));
+      }
+    } catch (_) {}
   }
   if (!isEdit) {
-    // 初期表示時に、現在の運転者の前回車両をプリセット
-    applyVehiclePreset(driverSel.value || cfg.userId);
+    // 初期表示時に、現在の運転者の前回車両をプリセット（ローカル→サーバーの順）
+    presetVehicle(driverSel.value || cfg.userId);
     // 管理者の代理入力で運転者を変えたら、その運転者の前回車両に追従（手動選択時は除く）
-    driverSel.addEventListener('change', () => { applyVehiclePreset(driverSel.value || cfg.userId); });
+    driverSel.addEventListener('change', () => { presetVehicle(driverSel.value || cfg.userId); });
   }
 
   // 走行距離 自動計算
