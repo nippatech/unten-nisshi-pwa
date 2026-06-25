@@ -14,9 +14,10 @@
  * v36 (2026-06-20): v0.14.2（起動時に自分の前回車両を先読み＋照会中の「確認中…」表示）。
  * v37 (2026-06-20): v0.14.3（行先入力を縦並び＋全幅リストに。長い行先名も折り返さず読みやすく）。
  * v38 (2026-06-20): v0.14.4（行先候補リストをスクロール可能に。blur依存をやめ外側タップで閉じる）。
+ * v39 (2026-06-20): v0.14.5（リリース前バグ修正。オフライン初回のJS/CSS解決を ignoreSearch で修正ほか）。
  */
 
-const CACHE_VERSION = 'v38-2026-06-20';
+const CACHE_VERSION = 'v39-2026-06-20';
 const SHELL = [
   './',
   './index.html',
@@ -69,7 +70,9 @@ self.addEventListener('fetch', (event) => {
         }
         return resp;
       }).catch(() =>
-        caches.match(event.request).then(hit => hit || caches.match('./index.html'))
+        // v0.14.5: プリキャッシュはクエリ無し（./app.js）だが要求は ?v=0.14.x 付き。
+        //   ignoreSearch でクエリを無視してヒットさせ、オフライン初回でもJS/CSSを解決する。
+        caches.match(event.request, { ignoreSearch: true }).then(hit => hit || caches.match('./index.html'))
       )
     );
     return;

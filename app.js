@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.4-poc';
+const APP_VERSION = '0.14.5-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -601,6 +601,10 @@ async function renderList() {
   const countEl = document.getElementById('list-count');
   const toolbar = document.querySelector('.list-toolbar');
 
+  // v0.14.5: 非管理者（管理者ログアウト/別ユーザー選択後）になったら「削除済表示」を解除。
+  // トグルが非表示になり解除手段が無くなる＆showDeletedを送り続けるスタックを防ぐ。
+  if (!me.isAdmin) _showDeleted = false;
+
   // Phase D: 管理者のみ「削除済を表示」トグル
   if (me.isAdmin && toolbar && !toolbar.querySelector('.admin-toggle')) {
     const toggleLabel = document.createElement('label');
@@ -709,10 +713,11 @@ function renderLogCard(d, isPending) {
   const delFlag = d['削除フラグ'];
   const isDeleted = (delFlag === true || delFlag === 'TRUE' || delFlag === 'true');
   div.className = 'log-item' + (isPending ? ' pending' : '') + (isDeleted ? ' deleted' : '');
-  const date = formatDate(d['日時']);
-  const km = d['走行距離（km)'] ?? d['走行距離(km)'] ?? '-';
-  const fuel = d['給油(L)'] ? ` / 給油 ${d['給油(L)']}L` : '';
-  const driver = d['運転者'] ? ` / 運転者 ${displayStaffName(d['運転者'])}` : '';
+  // v0.14.5: ユーザー由来の文字列は全て escape（運転者名・メータ等の未エスケープによるHTML注入を防ぐ）
+  const date = escape(formatDate(d['日時']));
+  const km = escape(String(d['走行距離（km)'] ?? d['走行距離(km)'] ?? '-'));
+  const fuel = d['給油(L)'] ? ` / 給油 ${escape(String(d['給油(L)']))}L` : '';
+  const driver = d['運転者'] ? ` / 運転者 ${escape(displayStaffName(d['運転者']))}` : '';
   const dataId = d['データID'] || '';
   // 削除済は管理者のみ「復活」ボタン、編集/削除は出さない
   const editable = !isPending && dataId && !isDeleted && canEdit(d);
@@ -730,7 +735,7 @@ function renderLogCard(d, isPending) {
     </div>
     <div class="vehicle">${escape(d['車種表示'] || '車種ID:' + d['車種'])}</div>
     <div class="nums">
-      <b>${km} km</b> ／ ${d['発車前メータ'] || '?'} → ${d['到着後メータ'] || '?'}${fuel}${driver}
+      <b>${km} km</b> ／ ${escape(String(d['発車前メータ'] || '?'))} → ${escape(String(d['到着後メータ'] || '?'))}${fuel}${driver}
     </div>
     ${actionsHtml}
   `;
@@ -1084,7 +1089,17 @@ async function renderForm(opts = {}) {
     // 初期表示時に、現在の運転者の前回車両をプリセット（ローカル→サーバーの順）
     presetVehicle(driverSel.value || cfg.userId);
     // 管理者の代理入力で運転者を変えたら、その運転者の前回車両に追従（手動選択時は除く）
-    driverSel.addEventListener('change', () => { presetVehicle(driverSel.value || cfg.userId); });
+    // v0.14.5: 切替時に前の運転者の車種が残って誤登録されないよう、手動選択でなければ一旦クリア
+    //   してから引き直す（新運転者の前回車両が見つからなければ空のままになる）。
+    driverSel.addEventListener('change', () => {
+      if (sel.dataset.userChosen !== '1') {
+        sel.value = '';
+        const si = document.getElementById('f-start');
+        if (si && si.dataset.userInput !== '1') { si.value = ''; si.dispatchEvent(new Event('input')); }
+        sel.dispatchEvent(new Event('change')); // ヒント/距離をクリア（vehicleId空でhandleVehicleChangeは即return）
+      }
+      presetVehicle(driverSel.value || cfg.userId);
+    });
   }
 
   // 走行距離 自動計算
