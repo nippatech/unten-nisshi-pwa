@@ -219,7 +219,7 @@
 <template id="tpl-pdf">
   <section class="card">
     <h2>PDF出力（管理者専用）</h2>
-    <p class="hint">AppSheet版と同じレイアウトの運転日誌PDFを作成します。作成したPDFはDriveの「PDF」フォルダにも保存されます。車種を選ばない場合は、期間内に走行のあった全車種を車種ごとに出力します。</p>
+    <p class="hint">AppSheet版と同じレイアウトの運転日誌PDFを作成します。作成したPDFはDriveの「PDF」フォルダにも保存されます。車種を選ばない場合は、期間内に走行のあった全車種を車両ごとに出力します。<strong>2ページ以上は1ファイルに結合</strong>し、<strong>印鑑は車両のエリアで自動割当</strong>（福山=髙眞／関東=深澤／九州・大阪・本社=山田／多可=三島）します。</p>
     <form id="form-pdf" autocomplete="off">
       <label>開始日
         <input id="p-start" type="date" required>
@@ -233,8 +233,8 @@
       <label>運転者（未選択＝全員）
         <select id="p-driver"><option value="">— 全員 —</option></select>
       </label>
-      <label>印鑑（未選択＝なし）
-        <select id="p-hanko"><option value="">— なし —</option></select>
+      <label>印鑑（未選択＝エリアで自動）
+        <select id="p-hanko"><option value="">— エリアで自動 —</option></select>
       </label>
       <button id="btn-pdf" class="primary big" type="submit">PDF作成</button>
       <p id="pdf-msg" class="msg"></p>
@@ -243,6 +243,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.14.6" defer></script>
+<script src="./app.js?v=0.14.7" defer></script>
 </body>
 </html>

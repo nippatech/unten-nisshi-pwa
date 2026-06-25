@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.6-poc';
+const APP_VERSION = '0.14.7-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1810,7 +1810,10 @@ async function renderPdf() {
       const j = await apiPost('export_pdf', payload, { userId: cfg.userId });
       const files = j.files || [];
       msg.className = 'msg ok';
-      msg.textContent = `${files.length} 件のPDFを作成しました（対象 ${j.count} レコード）。Driveの「PDF」フォルダにも保存済みです。下のリンクからダウンロードできます。`;
+      const unmatched = Array.isArray(j.unmatchedRegions) ? j.unmatchedRegions : [];
+      const warn = unmatched.length ? `\n⚠️ 印鑑が自動割当できなかった車両（エリア未対応）: ${unmatched.join('、')}` : '';
+      msg.style.whiteSpace = 'pre-line';
+      msg.textContent = `${files.length} 件のPDFを作成しました（対象 ${j.count} レコード／車両ごとに結合）。Driveの「PDF」フォルダにも保存済みです。下のリンクからダウンロードできます。${warn}`;
       for (const f of files) {
         const bytes = Uint8Array.from(atob(f.base64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: 'application/pdf' });
