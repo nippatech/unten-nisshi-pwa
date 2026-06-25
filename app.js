@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.5-poc';
+const APP_VERSION = '0.14.6-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -118,6 +118,7 @@ const me = {
   isAdmin: false,
   serverEligible: false,
   adminPasswordSet: false,
+  dualDb: false, // v0.14.6: 移行期間の二重DB参照が有効か（メーター連続性）
   editWindowDays: 30,
   loaded: false,
 };
@@ -133,6 +134,7 @@ async function fetchMe() {
     const j = await apiGet('me', { userId: cfg.userId });
     me.serverEligible = !!j.isAdmin;
     me.adminPasswordSet = !!j.adminPasswordSet;
+    me.dualDb = !!j.dualDb;
     me.editWindowDays = j.editWindowDays || 30;
     me.loaded = true;
     recomputeAdmin();
@@ -988,6 +990,31 @@ async function renderForm(opts = {}) {
       startInputElem.dataset.userInput = '1';
     }
   });
+  // v0.14.6: 移行期間だけ、選んだ車種の発車前メータを「新DB＋旧DB(AppSheet)の和集合」の
+  //   最新到着メータで補正する（車両が両系にまたがってもメーターが不連続にならない）。
+  //   recentLogs（新DBのみ・直近100件）の値を、サーバーの全DB照合値で上書きする。
+  let _meterCheckedVid = '';
+  async function correctMeterCrossDB(vehicleId) {
+    if (isEdit || !me.dualDb) return;          // 移行モード(dualDb)のみ
+    vehicleId = String(vehicleId || '');
+    if (!vehicleId) return;
+    const startInput = document.getElementById('f-start');
+    if (!startInput || startInput.dataset.userInput === '1') return; // 手入力は尊重
+    if (_meterCheckedVid === vehicleId) return; // 同一車種の二重照会を抑制
+    _meterCheckedVid = vehicleId;
+    try {
+      const j = await apiGet('vehicle_last_meter', { vehicle: vehicleId });
+      if (sel.value !== vehicleId) return;       // 照会中に車種が変わった
+      if (startInput.dataset.userInput === '1') return;
+      const m = j && j.found ? j['到着後メータ'] : null;
+      if (m !== '' && m != null && String(startInput.value) !== String(m)) {
+        startInput.value = m;
+        const hint = document.getElementById('f-start-hint');
+        if (hint) hint.textContent = `（前回到着 ${m} から自動入力・新旧DB照合）`;
+        startInput.dispatchEvent(new Event('input'));
+      }
+    } catch (_) {}
+  }
   const handleVehicleChange = () => {
     if (isEdit) return; // 編集モードは触らない
     const vehicleId = String(sel.value);
@@ -1002,6 +1029,8 @@ async function renderForm(opts = {}) {
       if (hint) hint.textContent = '（手入力のため自動補完を停止）';
       return;
     }
+    // v0.14.6: 移行期間は全DB照合で発車前メータを補正（recentLogsの新DB値を上書きしうる）
+    correctMeterCrossDB(vehicleId);
     if (recentLogs.length === 0) {
       if (hint) hint.textContent = '（過去データを取得中…車種を選び直してください）';
       return;
