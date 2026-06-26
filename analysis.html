@@ -48,10 +48,11 @@
 </div>
 <div class="wrap" id="app" style="display:none">
   <div class="controls">
+    <label>会計期</label>
+    <select id="ki"></select>
     <label>期間</label>
     <input type="date" id="since"> 〜 <input type="date" id="until">
     <button id="apply" class="primary">表示</button>
-    <button id="all">全期間</button>
     <button id="xlsx">Excelダウンロード</button>
     <span id="status">読み込み中…</span>
   </div>
@@ -142,7 +143,7 @@ function card(lbl, val, unit) {
 function mkChart(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart($(id), cfg); }
 function table(el, cols, rows) {
   const thead = '<tr>' + cols.map(c => `<th>${c.h}</th>`).join('') + '</tr>';
-  const body = rows.map(r => '<tr>' + cols.map(c => `<td>${c.f ? c.f(r[c.k]) : (r[c.k] == null ? '' : r[c.k])}</td>`).join('') + '</tr>').join('');
+  const body = rows.map(r => '<tr>' + cols.map(c => `<td>${c.f ? c.f(r[c.k], r) : (r[c.k] == null ? '' : r[c.k])}</td>`).join('') + '</tr>').join('');
   el.innerHTML = thead + body;
 }
 
@@ -187,7 +188,7 @@ function render(j) {
   const d = j.byDriver;
   mkChart('chDriver', {
     type: 'bar',
-    data: { labels: d.map(x => x.name), datasets: [{ label: '走行距離(km)', data: d.map(x => x.distance), backgroundColor: '#5a4db1' }] },
+    data: { labels: d.map(x => x.name + (x.retired ? '（退職）' : '')), datasets: [{ label: '走行距離(km)', data: d.map(x => x.distance), backgroundColor: d.map(x => x.retired ? '#9aa0b5' : '#5a4db1') }] },
     options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
   });
 
@@ -195,7 +196,7 @@ function render(j) {
     [{ h: '車両', k: 'name' }, { h: 'エリア', k: 'region' }, { h: '走行距離(km)', k: 'distance', f: num }, { h: '件数', k: 'trips', f: num }, { h: '稼働日', k: 'days', f: num }, { h: '給油(L)', k: 'fuel', f: num }, { h: '燃費(km/L)', k: 'kmPerL' }],
     v);
   table($('drvTable'),
-    [{ h: '運転者', k: 'name' }, { h: '走行距離(km)', k: 'distance', f: num }, { h: '件数', k: 'trips', f: num }, { h: '稼働日', k: 'days', f: num }],
+    [{ h: '運転者', k: 'name', f: (v, r) => v + (r.retired ? ' <span style="color:#b3261e;font-size:11px;">(退職)</span>' : '') }, { h: '走行距離(km)', k: 'distance', f: num }, { h: '件数', k: 'trips', f: num }, { h: '稼働日', k: 'days', f: num }],
     d);
   table($('destTable'),
     [{ h: '拠店', k: '拠店' }, { h: '行先', k: '行先' }, { h: '回数', k: 'count', f: num }],
@@ -222,11 +223,38 @@ function downloadXlsx() {
   XLSX.writeFile(wb, '運転日誌分析_' + (r.since || 'all') + '_' + (r.until || 'all') + '.xlsx');
 }
 
+// 会計期（106期=2025/10〜2026/9・決算9月）。期P = (1919+P)年10月 〜 (1920+P)年9月
+function kiOfDate(d) { const y = d.getFullYear(), m = d.getMonth() + 1; return m >= 10 ? y - 1919 : y - 1920; }
+function kiRange(p) { const sy = 1919 + Number(p); return { since: sy + '-10-01', until: (sy + 1) + '-09-30' }; }
+const CUR_KI = kiOfDate(new Date());
+(function initKi() {
+  const sel = $('ki');
+  for (let p = CUR_KI; p >= 104; p--) {
+    const r = kiRange(p);
+    const o = document.createElement('option');
+    o.value = p;
+    o.textContent = p + '期' + (p === CUR_KI ? '（当期）' : '') + '  ' + r.since.slice(0, 7).replace('-', '/') + '〜' + r.until.slice(0, 7).replace('-', '/');
+    sel.appendChild(o);
+  }
+  const allo = document.createElement('option'); allo.value = 'all'; allo.textContent = '全期間'; sel.appendChild(allo);
+  sel.value = String(CUR_KI);
+  sel.onchange = () => {
+    if (sel.value === 'all') { $('since').value = ''; $('until').value = ''; }
+    else { const r = kiRange(sel.value); $('since').value = r.since; $('until').value = r.until; }
+    load();
+  };
+})();
+// 期間を手で変えたら会計期セレクトは「全期間（カスタム）」扱いに
+$('since').addEventListener('change', () => { $('ki').value = 'all'; });
+$('until').addEventListener('change', () => { $('ki').value = 'all'; });
+
 $('apply').onclick = load;
-$('all').onclick = () => { $('since').value = ''; $('until').value = ''; load(); };
 $('xlsx').onclick = downloadXlsx;
 $('login-btn').onclick = doLogin;
 $('login-pw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
+
+// 既定は当期
+(function () { const r = kiRange(CUR_KI); $('since').value = r.since; $('until').value = r.until; })();
 
 // 起動: 既にセッションでログイン済みならそのまま表示、未ログインならパスワード画面
 if (aToken()) { $('login').style.display = 'none'; $('app').style.display = 'block'; load(); }
