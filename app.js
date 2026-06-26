@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.8-poc';
+const APP_VERSION = '0.14.9-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1607,6 +1607,63 @@ function bindAppsheetImport() {
   };
 }
 
+// v0.14.9: アルコールチェック確認者の追加/削除（管理者専用）
+function bindCheckerMgmt() {
+  const listEl = document.getElementById('checker-list');
+  const addBtn = document.getElementById('btn-checker-add');
+  const addInput = document.getElementById('checker-new');
+  const addMsg = document.getElementById('checker-add-msg');
+  const msgEl = document.getElementById('checker-msg');
+  if (!listEl || !addBtn) return;
+  let rows = [];
+  const render = () => {
+    listEl.innerHTML = '';
+    for (const c of rows) {
+      const name = String(c['確認者'] || '').trim();
+      if (!name) continue;
+      const id = c['ID'];
+      const div = document.createElement('div');
+      div.className = 'staff-item';
+      div.innerHTML = `<div><span class="name">${escape(name)}</span></div><span class="id">${escape(String(id == null ? '' : id))}</span><div class="actions"><button class="ghost small danger" data-del-checker>削除</button></div>`;
+      div.querySelector('[data-del-checker]').onclick = async (ev) => {
+        ev.preventDefault();
+        if (!confirm(`確認者「${name}」を候補から削除しますか？\n（過去の記録は残ります）`)) return;
+        const btn = ev.currentTarget; btn.disabled = true;
+        msgEl.className = 'msg'; msgEl.textContent = '削除中…';
+        try {
+          await apiPost('checker_delete', { 'ID': id, '確認者': name }, { userId: cfg.userId });
+          await refresh();
+          msgEl.className = 'msg ok'; msgEl.textContent = `「${name}」を削除しました`;
+          setTimeout(() => { msgEl.textContent = ''; msgEl.className = 'msg'; }, 3000);
+        } catch (e) { btn.disabled = false; msgEl.className = 'msg ng'; msgEl.textContent = '失敗: ' + e.message; }
+      };
+      listEl.appendChild(div);
+    }
+  };
+  const refresh = async () => {
+    try {
+      const j = await apiGet('checkers');
+      rows = (j.data && j.data.rows) ? j.data.rows : [];
+      checkersList = rows; // フォームの候補（activeCheckers）にも反映
+      render();
+    } catch (e) { msgEl.className = 'msg ng'; msgEl.textContent = '取得失敗: ' + e.message; }
+  };
+  addBtn.onclick = async () => {
+    const name = addInput.value.trim();
+    if (!name) { addMsg.className = 'msg ng'; addMsg.textContent = '確認者名を入力してください'; return; }
+    addBtn.disabled = true;
+    addMsg.className = 'msg'; addMsg.textContent = '追加中…';
+    try {
+      const j = await apiPost('checker_add', { '確認者': name }, { userId: cfg.userId });
+      addMsg.className = 'msg ok'; addMsg.textContent = (j.action === 'exists') ? `「${name}」は既にあります` : `「${name}」を追加しました`;
+      addInput.value = '';
+      await refresh();
+    } catch (e) { addMsg.className = 'msg ng'; addMsg.textContent = '失敗: ' + e.message; }
+    finally { addBtn.disabled = false; }
+  };
+  refresh();
+}
+
 async function renderStaff() {
   if (!me.loaded) await fetchMe();
   if (!me.isAdmin) {
@@ -1619,6 +1676,8 @@ async function renderStaff() {
 
   // v0.9.11: AppSheet 取り込みカードのハンドラ
   bindAppsheetImport();
+  // v0.14.9: アルコールチェック確認者の管理カード
+  bindCheckerMgmt();
 
   const listEl = document.getElementById('staff-list');
   const countEl = document.getElementById('staff-count');

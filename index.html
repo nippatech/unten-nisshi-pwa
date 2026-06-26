@@ -179,6 +179,17 @@
     <div id="staff-list" class="staff-list"></div>
     <p id="staff-msg" class="msg"></p>
   </section>
+  <section class="card">
+    <h2>アルコールチェック確認者（管理者専用）</h2>
+    <p class="hint">新規入力の「アルコールチェック確認者」の候補を追加・削除します。削除しても過去の記録は残ります。</p>
+    <div class="staff-add-row">
+      <input id="checker-new" type="text" placeholder="確認者名（姓など）">
+      <button id="btn-checker-add" class="primary" type="button">追加</button>
+    </div>
+    <p id="checker-add-msg" class="msg"></p>
+    <div id="checker-list" class="staff-list"></div>
+    <p id="checker-msg" class="msg"></p>
+  </section>
 </template>
 
 <template id="tpl-bulk">
@@ -243,6 +254,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.14.8" defer></script>
+<script src="./app.js?v=0.14.9" defer></script>
 </body>
 </html>
