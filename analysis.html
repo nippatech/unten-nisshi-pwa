@@ -37,7 +37,16 @@
 </head>
 <body>
 <header>運転日誌 分析ダッシュボード</header>
-<div class="wrap">
+<div id="login" style="display:flex;min-height:60vh;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border:1px solid #e3e7ee;border-radius:10px;padding:24px;max-width:340px;width:100%;">
+    <h3 style="margin:0 0 6px;">分析の閲覧</h3>
+    <p style="font-size:13px;color:#6b7280;margin:0 0 12px;">閲覧用パスワードを入力してください。</p>
+    <input type="password" id="login-pw" autocomplete="off" style="width:100%;padding:9px;border:1px solid #c7ccd4;border-radius:6px;font-size:15px;">
+    <button id="login-btn" class="primary" style="width:100%;margin-top:10px;padding:10px;">表示する</button>
+    <p id="login-msg" style="font-size:13px;color:#b3261e;margin:8px 0 0;"></p>
+  </div>
+</div>
+<div class="wrap" id="app" style="display:none">
   <div class="controls">
     <label>期間</label>
     <input type="date" id="since"> 〜 <input type="date" id="until">
@@ -74,6 +83,34 @@ const charts = {};
 const num = n => (n == null ? '' : Number(n).toLocaleString());
 const $ = id => document.getElementById(id);
 
+// 閲覧用トークン（セッション内のみ保持＝タブを閉じると再ログイン）
+const ATOK_KEY = 'unten.analytics_token';
+const aToken = () => { try { return sessionStorage.getItem(ATOK_KEY) || ''; } catch (_) { return ''; } };
+const setAToken = v => { try { sessionStorage.setItem(ATOK_KEY, v); } catch (_) {} };
+const clearAToken = () => { try { sessionStorage.removeItem(ATOK_KEY); } catch (_) {} };
+
+function showLogin(msg) {
+  $('login').style.display = 'flex';
+  $('app').style.display = 'none';
+  if (msg) $('login-msg').textContent = msg;
+  setTimeout(() => $('login-pw').focus(), 50);
+}
+async function doLogin() {
+  const pw = $('login-pw').value;
+  if (!pw) { $('login-msg').textContent = 'パスワードを入力してください'; return; }
+  $('login-btn').disabled = true; $('login-msg').textContent = '確認中…';
+  try {
+    const res = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ token: TOKEN, action: 'analytics_login', payload: { password: pw } }), redirect: 'follow' });
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || '失敗');
+    setAToken(j.analyticsToken);
+    $('login-msg').textContent = '';
+    $('login').style.display = 'none'; $('app').style.display = 'block';
+    load();
+  } catch (e) { $('login-msg').textContent = 'ログイン失敗: ' + e.message; }
+  finally { $('login-btn').disabled = false; }
+}
+
 async function load() {
   const since = $('since').value, until = $('until').value;
   $('status').textContent = '読み込み中…（数十秒かかることがあります）';
@@ -82,10 +119,12 @@ async function load() {
     const u = new URL(GAS_URL);
     u.searchParams.set('action', 'analytics');
     u.searchParams.set('token', TOKEN);
+    u.searchParams.set('analyticsToken', aToken());
     if (since) u.searchParams.set('since', since);
     if (until) u.searchParams.set('until', until);
     const res = await fetch(u.toString());
     const j = await res.json();
+    if (j.needLogin) { clearAToken(); showLogin('もう一度ログインしてください'); return; }
     if (!j.ok) throw new Error(j.error || 'failed');
     DATA = j;
     render(j);
@@ -186,7 +225,12 @@ function downloadXlsx() {
 $('apply').onclick = load;
 $('all').onclick = () => { $('since').value = ''; $('until').value = ''; load(); };
 $('xlsx').onclick = downloadXlsx;
-load();
+$('login-btn').onclick = doLogin;
+$('login-pw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } });
+
+// 起動: 既にセッションでログイン済みならそのまま表示、未ログインならパスワード画面
+if (aToken()) { $('login').style.display = 'none'; $('app').style.display = 'block'; load(); }
+else { showLogin(); }
 </script>
 </body>
 </html>
