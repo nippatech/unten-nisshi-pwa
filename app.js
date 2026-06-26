@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.7-poc';
+const APP_VERSION = '0.14.8-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1658,9 +1658,48 @@ async function renderStaff() {
         </div>
         <span class="id">${escape(id)}</span>
         <div class="actions">
+          <button class="ghost small" data-edit="${escape(id)}">編集</button>
           <button class="ghost small ${isRetired ? '' : 'danger'}" data-toggle="${escape(id)}" data-retired="${isRetired ? '1' : '0'}">${isRetired ? '復職' : '退職'}</button>
         </div>
       `;
+      // v0.14.8: 氏名の編集（社員IDは変えない＝過去データとの紐付け維持）。管理者専用。
+      div.querySelector('[data-edit]').onclick = (ev) => {
+        ev.preventDefault();
+        const nameCell = div.querySelector('.name').parentElement;
+        const actions = div.querySelector('.actions');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = name;
+        input.style.cssText = 'width:100%;font-size:0.95rem;padding:6px;';
+        nameCell.innerHTML = '';
+        nameCell.appendChild(input);
+        const save = document.createElement('button');
+        save.type = 'button'; save.className = 'primary small'; save.textContent = '保存';
+        const cancel = document.createElement('button');
+        cancel.type = 'button'; cancel.className = 'ghost small'; cancel.textContent = 'キャンセル';
+        actions.innerHTML = '';
+        actions.appendChild(save); actions.appendChild(cancel);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+        cancel.onclick = () => render();
+        const doSave = async () => {
+          const newName = input.value.trim();
+          if (!newName) { input.focus(); return; }
+          if (newName === name) { render(); return; }
+          save.disabled = true; cancel.disabled = true;
+          msgEl.className = 'msg'; msgEl.textContent = '更新中…';
+          try {
+            await apiPost('staff_upsert', { '社員ID': id, '氏名': newName }, { userId: cfg.userId });
+            await refresh();
+            msgEl.className = 'msg ok'; msgEl.textContent = `「${name}」→「${newName}」に更新しました`;
+            setTimeout(() => { msgEl.textContent = ''; msgEl.className = 'msg'; }, 3000);
+          } catch (e) {
+            msgEl.className = 'msg ng'; msgEl.textContent = '失敗: ' + e.message;
+            render();
+          }
+        };
+        save.onclick = doSave;
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
+      };
       div.querySelector('[data-toggle]').onclick = async (ev) => {
         ev.preventDefault();
         const targetRetire = !isRetired;
