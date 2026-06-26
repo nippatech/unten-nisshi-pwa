@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.14.9-poc';
+const APP_VERSION = '0.15.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1980,6 +1980,13 @@ async function renderSettings() {
     };
     refreshAdminUI();
     whoP.after(wrap);
+  }
+
+  // v0.15.0: 分析ダッシュボードへのリンク（管理者のみ）
+  if (whoP && me.isAdmin) {
+    const ap = document.createElement('p');
+    ap.innerHTML = '<a href="./analysis.html" target="_blank" rel="noopener noreferrer">📊 分析ダッシュボードを開く（新しいタブ）</a>';
+    whoP.after(ap);
   }
 
   document.getElementById('btn-change-user').onclick = () => go('#/picker');

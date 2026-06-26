@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>運転日誌 分析ダッシュボード</title>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --line:#e3e7ee; --ink:#1f2a37; --muted:#6b7280; --accent:#1f3a5f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif; }
+  header { background:var(--accent); color:#fff; padding:12px 18px; font-size:18px; font-weight:600; position:sticky; top:0; z-index:10; }
+  .wrap { max-width:1200px; margin:0 auto; padding:16px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:14px; }
+  .controls label { font-size:13px; color:var(--muted); }
+  input[type=date], select { padding:6px 8px; border:1px solid #c7ccd4; border-radius:6px; font-size:14px; }
+  button { padding:7px 13px; border:1px solid #c7ccd4; background:#fff; border-radius:6px; font-size:14px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { font-size:13px; color:var(--muted); margin-left:auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card .lbl { font-size:12px; color:var(--muted); }
+  .card .val { font-size:24px; font-weight:700; margin-top:2px; }
+  .card .val small { font-size:13px; font-weight:400; color:var(--muted); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px){ .grid2 { grid-template-columns:1fr; } }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; }
+  .panel h3 { margin:0 0 8px; font-size:15px; }
+  .chartbox { position:relative; height:300px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--card); cursor:pointer; }
+  .tablebox { max-height:360px; overflow:auto; }
+  .hint { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>運転日誌 分析ダッシュボード</header>
+<div class="wrap">
+  <div class="controls">
+    <label>期間</label>
+    <input type="date" id="since"> 〜 <input type="date" id="until">
+    <button id="apply" class="primary">表示</button>
+    <button id="all">全期間</button>
+    <button id="xlsx">Excelダウンロード</button>
+    <span id="status">読み込み中…</span>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="grid2">
+    <div class="panel"><h3>月次の走行距離・件数</h3><div class="chartbox"><canvas id="chMonth"></canvas></div></div>
+    <div class="panel"><h3>車両別 走行距離</h3><div class="chartbox"><canvas id="chVehDist"></canvas></div></div>
+    <div class="panel"><h3>車両別 燃費（km/L）</h3><div class="chartbox"><canvas id="chVehFuel"></canvas></div><p class="hint">給油記録のある車両のみ</p></div>
+    <div class="panel"><h3>運転者別 走行距離</h3><div class="chartbox"><canvas id="chDriver"></canvas></div></div>
+  </div>
+
+  <div class="panel"><h3>車両別 集計</h3><div class="tablebox"><table id="vehTable"></table></div></div>
+  <div class="grid2">
+    <div class="panel"><h3>運転者別 集計</h3><div class="tablebox"><table id="drvTable"></table></div></div>
+    <div class="panel"><h3>行先 頻度（トップ100）</h3><div class="tablebox"><table id="destTable"></table></div></div>
+  </div>
+  <p class="hint">データ元：運転日誌（GAS）。金額は燃料単価データが無いため非表示。数値は四捨五入。</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyAKtGvfOWv98qpeNQhBfOTOaRQX5FNk_XPrZoCw24KR4U8ew7kqlS3vjiqMUW3HDrPMQ/exec';
+const TOKEN = 'nip-unten-poc-2026-a8c3f9e2';
+let DATA = null;
+const charts = {};
+const num = n => (n == null ? '' : Number(n).toLocaleString());
+const $ = id => document.getElementById(id);
+
+async function load() {
+  const since = $('since').value, until = $('until').value;
+  $('status').textContent = '読み込み中…（数十秒かかることがあります）';
+  $('apply').disabled = true; $('xlsx').disabled = true;
+  try {
+    const u = new URL(GAS_URL);
+    u.searchParams.set('action', 'analytics');
+    u.searchParams.set('token', TOKEN);
+    if (since) u.searchParams.set('since', since);
+    if (until) u.searchParams.set('until', until);
+    const res = await fetch(u.toString());
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || 'failed');
+    DATA = j;
+    render(j);
+    $('status').textContent = `集計 ${num(j.totals.trips)} 件（${j.range.since || '最初'}〜${j.range.until || '最新'}）`;
+  } catch (e) {
+    $('status').textContent = '読み込み失敗: ' + e.message;
+  } finally {
+    $('apply').disabled = false; $('xlsx').disabled = false;
+  }
+}
+
+function card(lbl, val, unit) {
+  return `<div class="card"><div class="lbl">${lbl}</div><div class="val">${val}<small> ${unit || ''}</small></div></div>`;
+}
+function mkChart(id, cfg) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart($(id), cfg); }
+function table(el, cols, rows) {
+  const thead = '<tr>' + cols.map(c => `<th>${c.h}</th>`).join('') + '</tr>';
+  const body = rows.map(r => '<tr>' + cols.map(c => `<td>${c.f ? c.f(r[c.k]) : (r[c.k] == null ? '' : r[c.k])}</td>`).join('') + '</tr>').join('');
+  el.innerHTML = thead + body;
+}
+
+function render(j) {
+  const t = j.totals;
+  $('cards').innerHTML =
+    card('総走行距離', num(t.distance), 'km') +
+    card('運行件数', num(t.trips), '件') +
+    card('総給油量', num(t.fuel), 'L') +
+    card('平均燃費', t.kmPerL == null ? '—' : t.kmPerL, 'km/L') +
+    card('車両数', t.vehicles, '台') +
+    card('運転者数', t.drivers, '人');
+
+  // 月次（距離=棒 / 件数=線・第2軸）
+  const m = j.byMonth;
+  mkChart('chMonth', {
+    data: {
+      labels: m.map(x => x.ym),
+      datasets: [
+        { type: 'bar', label: '走行距離(km)', data: m.map(x => x.distance), backgroundColor: '#1f3a5f', yAxisID: 'y' },
+        { type: 'line', label: '件数', data: m.map(x => x.trips), borderColor: '#d8742f', backgroundColor: '#d8742f', yAxisID: 'y1', tension: .3 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { y: { position: 'left', title: { display: true, text: 'km' } }, y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '件' } } } }
+  });
+
+  const v = j.byVehicle;
+  mkChart('chVehDist', {
+    type: 'bar',
+    data: { labels: v.map(x => x.name), datasets: [{ label: '走行距離(km)', data: v.map(x => x.distance), backgroundColor: '#1f3a5f' }] },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+  });
+
+  const vf = v.filter(x => x.kmPerL != null).sort((a, b) => b.kmPerL - a.kmPerL);
+  mkChart('chVehFuel', {
+    type: 'bar',
+    data: { labels: vf.map(x => x.name), datasets: [{ label: '燃費(km/L)', data: vf.map(x => x.kmPerL), backgroundColor: '#2e7d57' }] },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+  });
+
+  const d = j.byDriver;
+  mkChart('chDriver', {
+    type: 'bar',
+    data: { labels: d.map(x => x.name), datasets: [{ label: '走行距離(km)', data: d.map(x => x.distance), backgroundColor: '#5a4db1' }] },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+  });
+
+  table($('vehTable'),
+    [{ h: '車両', k: 'name' }, { h: 'エリア', k: 'region' }, { h: '走行距離(km)', k: 'distance', f: num }, { h: '件数', k: 'trips', f: num }, { h: '稼働日', k: 'days', f: num }, { h: '給油(L)', k: 'fuel', f: num }, { h: '燃費(km/L)', k: 'kmPerL' }],
+    v);
+  table($('drvTable'),
+    [{ h: '運転者', k: 'name' }, { h: '走行距離(km)', k: 'distance', f: num }, { h: '件数', k: 'trips', f: num }, { h: '稼働日', k: 'days', f: num }],
+    d);
+  table($('destTable'),
+    [{ h: '拠店', k: '拠店' }, { h: '行先', k: '行先' }, { h: '回数', k: 'count', f: num }],
+    j.destFreq);
+}
+
+function downloadXlsx() {
+  if (!DATA) return;
+  const wb = XLSX.utils.book_new();
+  const t = DATA.totals;
+  const summary = [
+    ['運転日誌 分析', ''],
+    ['期間', (DATA.range.since || '最初') + ' 〜 ' + (DATA.range.until || '最新')],
+    ['総走行距離(km)', t.distance], ['運行件数', t.trips], ['総給油量(L)', t.fuel],
+    ['平均燃費(km/L)', t.kmPerL], ['車両数', t.vehicles], ['運転者数', t.drivers],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'サマリ');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(DATA.byVehicle), '車両別');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(DATA.byDriver), '運転者別');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(DATA.byMonth), '月次');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(DATA.destFreq), '行先頻度');
+  if (DATA.records) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(DATA.records), '生データ');
+  const r = DATA.range;
+  XLSX.writeFile(wb, '運転日誌分析_' + (r.since || 'all') + '_' + (r.until || 'all') + '.xlsx');
+}
+
+$('apply').onclick = load;
+$('all').onclick = () => { $('since').value = ''; $('until').value = ''; load(); };
+$('xlsx').onclick = downloadXlsx;
+load();
+</script>
+</body>
+</html>
