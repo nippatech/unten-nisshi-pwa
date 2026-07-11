@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.16.1">
+<link rel="stylesheet" href="./app.css?v=0.16.2">
 </head>
 <body>
 <header id="topbar">
@@ -192,8 +192,14 @@
   </section>
   <section class="card">
     <h2>ハンコ管理（PDFの承認印・管理者専用）</h2>
-    <p class="hint">月次PDFに押される「エリア別の承認印」を管理します。<b>承認者が交代したら</b>：①下の「印影を自動作成」で氏名を入れて登録（または画像をアップロード）→ ②エリアの割当を変更、の2ステップで完了します。</p>
-    <h3>エリア → ハンコ割当</h3>
+    <p class="hint">月次PDFに押される承認印を管理します。「業務部（管理者）」と「上長（エリア別）」の2種類があります。<b>担当者が交代したら</b>：①下の「印影を自動作成」で新任の氏名を入れて登録（または画像をアップロード）→ ②この画面の該当欄で選び直す、の2ステップで完了します。</p>
+    <h3>業務部（管理者）の承認印</h3>
+    <p class="hint">PDF右下「業務部」欄に押される印です。<b>未設定ならテンプレートの門田印がそのまま</b>押されます。管理者が交代したら、下の「印影を自動作成」で新任の印を作ってから、ここで選び直してください。</p>
+    <div id="hanko-admin-list" class="staff-list"></div>
+    <p id="hanko-admin-msg" class="msg"></p>
+    <hr>
+    <h3>上長欄 エリア → ハンコ割当</h3>
+    <p class="hint">PDF右下「上長」欄に押される、拠点（エリア）ごとの承認印です。</p>
     <div id="hanko-map-list" class="staff-list"></div>
     <div class="staff-add-row" style="margin-top:8px;">
       <input id="hanko-new-region" type="text" placeholder="新しいエリア名（例: 東北）">
@@ -294,6 +300,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.16.1" defer></script>
+<script src="./app.js?v=0.16.2" defer></script>
 </body>
 </html>

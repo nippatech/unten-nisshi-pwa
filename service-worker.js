@@ -22,7 +22,7 @@
  * v44 (2026-06-20): v0.15.0（分析ダッシュボード analysis.html＋設定にリンク。GAS analytics）。
  */
 
-const CACHE_VERSION = 'v46-2026-07-11';
+const CACHE_VERSION = 'v47-2026-07-12';
 const SHELL = [
   './',
   './index.html',

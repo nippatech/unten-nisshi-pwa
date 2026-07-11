@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.16.1-poc';
+const APP_VERSION = '0.16.2-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1908,6 +1908,8 @@ function makeHankoDataUrl(text, opts) {
 // 管理者交代時に「①印影アップロード → ②割当変更」だけで完結させる（コード修正不要）。
 function bindHankoMgmt() {
   const listEl = document.getElementById('hanko-map-list');
+  const adminListEl = document.getElementById('hanko-admin-list');
+  const adminMsgEl = document.getElementById('hanko-admin-msg');
   const filesEl = document.getElementById('hanko-files');
   const msgEl = document.getElementById('hanko-map-msg');
   const upMsgEl = document.getElementById('hanko-upload-msg');
@@ -1932,7 +1934,55 @@ function bindHankoMgmt() {
   const fileOptions = (selected) => ((info && info.files) || [])
     .map(f => `<option value="${escape(f.name)}"${f.name === selected ? ' selected' : ''}>${escape(f.name)}</option>`).join('');
 
+  // --- 業務部（管理者）印：テンプレの門田印を差し替える設定 ---
+  const renderAdmin = () => {
+    if (!adminListEl) return;
+    adminListEl.innerHTML = '';
+    const admin = (info && info.adminSeal) || { file: '', fileFound: false };
+    const cur = admin.file || '';
+    const curMissing = cur && !(info.files || []).some(f => f.name === cur);
+    const label = cur
+      ? escape(cur) + (admin.fileFound ? '' : '（画像なし）')
+      : 'テンプレートの門田印（既定）';
+    const thumb = cur && admin.fileFound ? thumbSrcOf(cur) : '';
+    const div = document.createElement('div');
+    div.className = 'staff-item';
+    div.innerHTML = `
+      <div>
+        <span class="name">${label}</span>
+        ${cur ? '' : '<span class="id">未設定</span>'}
+        ${curMissing ? '<span class="retired-badge warn-badge">画像なし</span>' : ''}
+      </div>
+      ${thumb ? `<img class="hanko-thumb" src="${thumb}" alt="">` : ''}
+      <div class="actions">
+        <select id="hanko-admin-sel">
+          <option value="">テンプレの門田印のまま（既定）</option>
+          ${curMissing ? `<option value="${escape(cur)}" selected>${escape(cur)}（画像なし）</option>` : ''}
+          ${fileOptions(cur)}
+        </select>
+      </div>`;
+    div.querySelector('#hanko-admin-sel').onchange = async (ev) => {
+      const sel = ev.currentTarget;
+      const fname = sel.value;
+      const msg = fname
+        ? `業務部（管理者）の印を「${fname}」に変更しますか？\n次回のPDF出力から、テンプレートの門田印に代わってこの印が押されます。`
+        : `業務部の印を「テンプレートの門田印」に戻しますか？`;
+      if (!confirm(msg)) { renderAdmin(); return; }
+      sel.disabled = true;
+      try {
+        await apiPost('hanko_map_set', { 'エリア': '業務部', 'ファイル名': fname }, { userId: cfg.userId });
+        setMsg(adminMsgEl, 'ok', fname ? `業務部の印を「${fname}」に設定しました` : '業務部の印をテンプレの門田印に戻しました', true);
+        await refresh();
+      } catch (e) {
+        setMsg(adminMsgEl, 'ng', '失敗: ' + e.message);
+        renderAdmin();
+      }
+    };
+    adminListEl.appendChild(div);
+  };
+
   const render = () => {
+    renderAdmin();
     // --- エリア→ハンコ割当（マスタの行 ＋ 車種マスタにあるが未割当のエリア） ---
     listEl.innerHTML = '';
     const mapped = {};
