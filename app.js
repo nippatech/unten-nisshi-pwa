@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.15.0-poc';
+const APP_VERSION = '0.16.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -563,7 +563,9 @@ async function renderPicker() {
     const id = String(s['社員ID']);
     const rawName = String(s['氏名'] || id);
     const name = displayStaffName(rawName); // v0.9.10: 門田→管理者
-    const isAdminEntry = ADMIN_RAW_KEYS.has(id); // v0.14.0: 管理者はパスワード要求
+    // v0.16.0: 管理者判定はシート駆動の「管理者フラグ」（staff APIの実効値）。
+    // ADMIN_RAW_KEYS はマスタ取得失敗時のフォールバック（STAFF_FALLBACK使用時はフラグが無いため）。
+    const isAdminEntry = !!s['管理者フラグ'] || ADMIN_RAW_KEYS.has(id);
     const b = document.createElement('button');
     // 社員IDが氏名と同じ場合はID表示を省略
     b.innerHTML = (id === name)
@@ -1678,6 +1680,8 @@ async function renderStaff() {
   bindAppsheetImport();
   // v0.14.9: アルコールチェック確認者の管理カード
   bindCheckerMgmt();
+  // v0.16.0: ハンコ管理カード（エリア別承認印の割当・印影アップロード）
+  bindHankoMgmt();
 
   const listEl = document.getElementById('staff-list');
   const countEl = document.getElementById('staff-count');
@@ -1708,19 +1712,57 @@ async function renderStaff() {
       const id = String(s['社員ID']);
       const name = String(s['氏名'] || id);
       const isRetired = !!s['退職フラグ'];
+      const isAdm = !!s['管理者フラグ']; // v0.16.0
       const div = document.createElement('div');
       div.className = 'staff-item' + (isRetired ? ' retired' : '');
       div.innerHTML = `
         <div>
           <span class="name">${escape(name)}</span>
+          ${isAdm && !isRetired ? '<span class="admin-badge">管理者</span>' : ''}
           ${isRetired ? '<span class="retired-badge">退職済</span>' : ''}
         </div>
         <span class="id">${escape(id)}</span>
         <div class="actions">
           <button class="ghost small" data-edit="${escape(id)}">編集</button>
+          ${isRetired ? '' : `<button class="ghost small" data-admtoggle="${escape(id)}">${isAdm ? '管理者解除' : '管理者に'}</button>`}
           <button class="ghost small ${isRetired ? '' : 'danger'}" data-toggle="${escape(id)}" data-retired="${isRetired ? '1' : '0'}">${isRetired ? '復職' : '退職'}</button>
         </div>
       `;
+      // v0.16.0: 管理者フラグの付与/解除（シート駆動＝管理者交代にコード修正不要）
+      const admBtn = div.querySelector('[data-admtoggle]');
+      if (admBtn) admBtn.onclick = async (ev) => {
+        ev.preventDefault();
+        const grant = !isAdm;
+        const isSelf = id === String(cfg.userId);
+        let msg = grant
+          ? `「${name}」を管理者にしますか？\n管理者メニュー（PDF出力・社員管理・ハンコ管理など）が使えるようになります。\n※本人が使うには「管理者パスワード」の入力も必要です。`
+          : `「${name}」の管理者権限を解除しますか？\n※完全に無効化するには、あわせてGASの管理者パスワード(ADMIN_PASSWORD)の変更も推奨します。`;
+        if (!grant && isSelf) {
+          msg = `【自分自身】の管理者権限を解除しようとしています。\n解除するとこの画面（社員管理・PDF出力など）が使えなくなります。\n本当に解除しますか？`;
+        }
+        if (!confirm(msg)) return;
+        admBtn.disabled = true;
+        msgEl.className = 'msg'; msgEl.textContent = '更新中…';
+        try {
+          await apiPost('staff_set_admin', { '社員ID': id, '管理者フラグ': grant }, { userId: cfg.userId });
+          // v0.16.0: 自分の権限が変わった可能性があるので me を再取得しナビ表示を同期
+          me.loaded = false;
+          await fetchMe();
+          document.querySelectorAll('.navbtn.admin-only').forEach(x => { x.hidden = !me.isAdmin; });
+          if (!me.isAdmin) {
+            alert('管理者権限が解除されたため、一覧画面に戻ります。');
+            return go('#/list');
+          }
+          await refresh();
+          msgEl.className = 'msg ok';
+          msgEl.textContent = `「${name}」を${grant ? '管理者にしました' : '管理者から解除しました'}`;
+          setTimeout(() => { msgEl.textContent = ''; msgEl.className = 'msg'; }, 3000);
+        } catch (e) {
+          admBtn.disabled = false;
+          msgEl.className = 'msg ng';
+          msgEl.textContent = '失敗: ' + e.message;
+        }
+      };
       // v0.14.8: 氏名の編集（社員IDは変えない＝過去データとの紐付け維持）。管理者専用。
       div.querySelector('[data-edit]').onclick = (ev) => {
         ev.preventDefault();
@@ -1815,6 +1857,167 @@ async function renderStaff() {
   };
 
   await refresh();
+}
+
+// ----- v0.16.0: ハンコ管理（月次PDFのエリア別承認印） -----
+// 管理者交代時に「①印影アップロード → ②割当変更」だけで完結させる（コード修正不要）。
+function bindHankoMgmt() {
+  const listEl = document.getElementById('hanko-map-list');
+  const filesEl = document.getElementById('hanko-files');
+  const msgEl = document.getElementById('hanko-map-msg');
+  const upMsgEl = document.getElementById('hanko-upload-msg');
+  const fileInput = document.getElementById('hanko-file-input');
+  const upBtn = document.getElementById('btn-hanko-upload');
+  const newRegionEl = document.getElementById('hanko-new-region');
+  const newFileSel = document.getElementById('hanko-new-file');
+  const addBtn = document.getElementById('btn-hanko-map-add');
+  if (!listEl) return;
+  let info = null;
+
+  const setMsg = (el, cls, text, autoclear) => {
+    el.className = 'msg' + (cls ? ' ' + cls : '');
+    el.textContent = text;
+    if (autoclear) setTimeout(() => { if (el.textContent === text) { el.textContent = ''; el.className = 'msg'; } }, 4000);
+  };
+  const thumbSrcOf = (name) => {
+    const f = ((info && info.files) || []).find(x => x.name === name);
+    if (!f || !f.thumb) return '';
+    return 'data:image/' + (/\.png$/i.test(name) ? 'png' : 'jpeg') + ';base64,' + f.thumb;
+  };
+  const fileOptions = (selected) => ((info && info.files) || [])
+    .map(f => `<option value="${escape(f.name)}"${f.name === selected ? ' selected' : ''}>${escape(f.name)}</option>`).join('');
+
+  const render = () => {
+    // --- エリア→ハンコ割当（マスタの行 ＋ 車種マスタにあるが未割当のエリア） ---
+    listEl.innerHTML = '';
+    const mapped = {};
+    for (const m of info.mappings) mapped[m['エリア']] = m;
+    const regionSet = new Set([
+      ...info.mappings.map(m => m['エリア']),
+      ...info.regions.map(r => r['エリア']),
+    ]);
+    for (const region of [...regionSet].sort()) {
+      const m = mapped[region];
+      const vr = info.regions.find(r => r['エリア'] === region);
+      const cur = m ? m['ファイル名'] : '';
+      const warn = (!m && vr) ? '<span class="retired-badge warn-badge">未割当</span>'
+        : (m && !m.fileFound ? '<span class="retired-badge warn-badge">画像なし</span>' : '');
+      const thumb = cur ? thumbSrcOf(cur) : '';
+      // v0.16.0fix: 割当ファイルがDriveに無い場合も現状を正しく表示（＝解除操作も可能に）
+      const curMissing = cur && !(info.files || []).some(f => f.name === cur);
+      const div = document.createElement('div');
+      div.className = 'staff-item';
+      div.innerHTML = `
+        <div>
+          <span class="name">${escape(region)}</span>
+          <span class="id">${vr ? `車両${vr.vehicles}台` : '車両なし'}</span>
+          ${warn}
+        </div>
+        ${thumb ? `<img class="hanko-thumb" src="${thumb}" alt="">` : ''}
+        <div class="actions">
+          <select data-region="${escape(region)}">
+            <option value="">（未割当）</option>
+            ${curMissing ? `<option value="${escape(cur)}" selected>${escape(cur)}（画像なし）</option>` : ''}
+            ${fileOptions(cur)}
+          </select>
+        </div>`;
+      div.querySelector('select').onchange = async (ev) => {
+        const sel = ev.currentTarget;
+        const fname = sel.value;
+        if (!confirm(`エリア「${region}」のハンコを「${fname || '未割当'}」に変更しますか？\n次回のPDF出力から反映されます。`)) { render(); return; }
+        sel.disabled = true;
+        try {
+          await apiPost('hanko_map_set', { 'エリア': region, 'ファイル名': fname }, { userId: cfg.userId });
+          setMsg(msgEl, 'ok', `「${region}」の割当を更新しました`, true);
+          await refresh();
+        } catch (e) {
+          setMsg(msgEl, 'ng', '失敗: ' + e.message);
+          render();
+        }
+      };
+      listEl.appendChild(div);
+    }
+    newFileSel.innerHTML = '<option value="">ハンコを選択</option>' + fileOptions('');
+    // --- 印影ファイル一覧 ---
+    filesEl.innerHTML = '';
+    for (const f of info.files) {
+      const usedBy = info.mappings.filter(m => m['ファイル名'] === f.name).map(m => m['エリア']);
+      const src = f.thumb ? thumbSrcOf(f.name) : '';
+      const div = document.createElement('div');
+      div.className = 'staff-item';
+      div.innerHTML = `
+        <div>
+          ${src ? `<img class="hanko-thumb" src="${src}" alt="">` : ''}
+          <span class="name">${escape(f.name)}</span>
+        </div>
+        <span class="id">${usedBy.length ? '割当: ' + escape(usedBy.join('・')) : '未使用'}</span>
+        <div class="actions"><button class="ghost small danger" data-del>削除</button></div>`;
+      div.querySelector('[data-del]').onclick = async () => {
+        if (usedBy.length) { alert(`「${usedBy.join('・')}」に割当中のため削除できません。\n先に割当を変更してください。`); return; }
+        if (!confirm(`「${f.name}」を削除しますか？`)) return;
+        try {
+          await apiPost('hanko_delete', { 'ファイル名': f.name }, { userId: cfg.userId });
+          setMsg(upMsgEl, 'ok', '削除しました: ' + f.name, true);
+          await refresh();
+        } catch (e) { setMsg(upMsgEl, 'ng', '失敗: ' + e.message); }
+      };
+      filesEl.appendChild(div);
+    }
+  };
+
+  const refresh = async () => {
+    try {
+      info = await apiGet('hanko_map', { userId: cfg.userId });
+      render();
+    } catch (e) {
+      setMsg(msgEl, 'ng', '取得失敗: ' + e.message);
+    }
+  };
+
+  addBtn.onclick = async () => {
+    const region = newRegionEl.value.trim();
+    const fname = newFileSel.value;
+    if (!region) { setMsg(msgEl, 'ng', 'エリア名を入力してください'); return; }
+    if (!fname) { setMsg(msgEl, 'ng', 'ハンコを選択してください'); return; }
+    // v0.16.0fix: 既存エリアへの上書きは確認を挟む（行select経路と同じ保護レベル）
+    const existing = info && info.mappings.find(m => m['エリア'] === region);
+    if (existing && !confirm(`エリア「${region}」は既に「${existing['ファイル名']}」に割当済みです。\n「${fname}」に上書きしますか？`)) return;
+    addBtn.disabled = true;
+    try {
+      await apiPost('hanko_map_set', { 'エリア': region, 'ファイル名': fname }, { userId: cfg.userId });
+      newRegionEl.value = '';
+      setMsg(msgEl, 'ok', `「${region}」に割当を追加しました`, true);
+      await refresh();
+    } catch (e) { setMsg(msgEl, 'ng', '失敗: ' + e.message); }
+    finally { addBtn.disabled = false; }
+  };
+
+  fileInput.onchange = () => { upBtn.disabled = !fileInput.files.length; };
+  upBtn.onclick = async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setMsg(upMsgEl, 'ng', 'ファイルが大きすぎます（2MBまで）'); return; }
+    upBtn.disabled = true;
+    setMsg(upMsgEl, '', 'アップロード中…');
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const rd = new FileReader();
+        rd.onload = () => resolve(String(rd.result).split(',')[1] || '');
+        rd.onerror = () => reject(new Error('ファイルを読み取れませんでした'));
+        rd.readAsDataURL(file);
+      });
+      const j = await apiPost('hanko_upload', { 'ファイル名': file.name, 'base64': b64 }, { userId: cfg.userId });
+      setMsg(upMsgEl, 'ok', (j.action === 'replaced' ? '差し替えました: ' : '追加しました: ') + j['ファイル名'], true);
+      fileInput.value = '';
+      await refresh();
+    } catch (e) {
+      setMsg(upMsgEl, 'ng', '失敗: ' + e.message);
+    } finally {
+      upBtn.disabled = !fileInput.files.length;
+    }
+  };
+
+  refresh();
 }
 
 // ----- ビュー: 設定 -----

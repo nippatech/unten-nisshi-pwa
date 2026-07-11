@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.14.4">
+<link rel="stylesheet" href="./app.css?v=0.16.0">
 </head>
 <body>
 <header id="topbar">
@@ -190,6 +190,27 @@
     <div id="checker-list" class="staff-list"></div>
     <p id="checker-msg" class="msg"></p>
   </section>
+  <section class="card">
+    <h2>ハンコ管理（PDFの承認印・管理者専用）</h2>
+    <p class="hint">月次PDFに押される「エリア別の承認印」を管理します。<b>承認者が交代したら</b>：①新しい印影（PNG画像）をアップロード → ②エリアの割当を変更、の2ステップで完了します。</p>
+    <h3>エリア → ハンコ割当</h3>
+    <div id="hanko-map-list" class="staff-list"></div>
+    <div class="staff-add-row" style="margin-top:8px;">
+      <input id="hanko-new-region" type="text" placeholder="新しいエリア名（例: 東北）">
+      <select id="hanko-new-file"></select>
+      <button id="btn-hanko-map-add" class="primary" type="button">割当追加</button>
+    </div>
+    <p id="hanko-map-msg" class="msg"></p>
+    <hr>
+    <h3>印影ファイル</h3>
+    <p class="hint">背景透過のPNG推奨。ファイル名は「氏名.png」（例: 山田.png）。同名でアップロードすると差し替えです。</p>
+    <div class="staff-add-row">
+      <input id="hanko-file-input" type="file" accept="image/png,image/jpeg">
+      <button id="btn-hanko-upload" class="primary" type="button" disabled>アップロード</button>
+    </div>
+    <p id="hanko-upload-msg" class="msg"></p>
+    <div id="hanko-files" class="staff-list"></div>
+  </section>
 </template>
 
 <template id="tpl-bulk">
@@ -254,6 +275,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.15.0" defer></script>
+<script src="./app.js?v=0.16.0" defer></script>
 </body>
 </html>
