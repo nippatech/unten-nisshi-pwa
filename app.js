@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.16.0-poc';
+const APP_VERSION = '0.16.1-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1859,6 +1859,51 @@ async function renderStaff() {
   await refresh();
 }
 
+// v0.16.1: 氏名から朱色の印影PNG(データURL)を自動生成する（Canvas・端末内で完結）。
+// 丸印/角印、縦書き。文字は円/枠の内接幅に収まるようフォントサイズを自動調整。
+function makeHankoDataUrl(text, opts) {
+  opts = opts || {};
+  const S = 300, color = opts.color || '#c8102e', shape = opts.shape || 'circle';
+  const cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+  const ctx = cv.getContext('2d');
+  const lw = Math.round(S * 0.032);
+  const cx = S / 2, cy = S / 2;
+  const r = S / 2 - lw / 2 - 2;                 // 丸の半径
+  const half = r;                                // 角印の内寸半分
+  // 枠
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'round';
+  if (shape === 'square') {
+    ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+  } else {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  const chars = [...String(text).trim()].filter(c => c.trim());
+  const n = Math.max(1, chars.length);
+  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const usableH = 2 * r * (shape === 'square' ? 0.86 : 0.82);
+  const cellH = usableH / n;
+  const top = cy - usableH / 2 + cellH / 2;
+  // その行(y)で使える横幅：丸は内接幅、角は一定幅
+  const availWidthAt = (y) => {
+    if (shape === 'square') return 2 * half * 0.82;
+    const hw = Math.sqrt(Math.max(0, r * r - (y - cy) * (y - cy)));
+    return 2 * hw * 0.80;
+  };
+  const fits = (fs) => {
+    ctx.font = 'bold ' + fs + 'px serif';
+    for (let i = 0; i < n; i++) {
+      const y = top + cellH * i;
+      if (ctx.measureText(chars[i]).width > availWidthAt(y)) return false;
+    }
+    return true;
+  };
+  let fs = Math.min(cellH * 0.98, r * 1.3);
+  while (fs > 8 && !fits(fs)) fs -= 2;
+  ctx.font = 'bold ' + fs + 'px serif';
+  chars.forEach((ch, i) => ctx.fillText(ch, cx, top + cellH * i));
+  return cv.toDataURL('image/png');
+}
+
 // ----- v0.16.0: ハンコ管理（月次PDFのエリア別承認印） -----
 // 管理者交代時に「①印影アップロード → ②割当変更」だけで完結させる（コード修正不要）。
 function bindHankoMgmt() {
@@ -1990,6 +2035,50 @@ function bindHankoMgmt() {
       await refresh();
     } catch (e) { setMsg(msgEl, 'ng', '失敗: ' + e.message); }
     finally { addBtn.disabled = false; }
+  };
+
+  // v0.16.1: 印影の自動作成（プレビュー→登録）
+  const genNameEl = document.getElementById('hanko-gen-name');
+  const genShapeEl = document.getElementById('hanko-gen-shape');
+  const genPreviewBtn = document.getElementById('btn-hanko-gen-preview');
+  const genWrap = document.getElementById('hanko-gen-preview-wrap');
+  const genImg = document.getElementById('hanko-gen-img');
+  const genFnameEl = document.getElementById('hanko-gen-fname');
+  const genSaveBtn = document.getElementById('btn-hanko-gen-save');
+  const genMsgEl = document.getElementById('hanko-gen-msg');
+  let genDataUrl = '';
+  const sanitizeName = (s) => String(s).trim().replace(/[\\/:*?"<>|]/g, '_');
+  const doPreview = () => {
+    const nm = genNameEl.value.trim();
+    if (!nm) { setMsg(genMsgEl, 'ng', '印影にする文字（姓など）を入力してください'); genWrap.hidden = true; return; }
+    genDataUrl = makeHankoDataUrl(nm, { shape: genShapeEl.value });
+    genImg.src = genDataUrl;
+    genFnameEl.textContent = 'ファイル名: ' + sanitizeName(nm) + '.png';
+    genWrap.hidden = false;
+    setMsg(genMsgEl, '', '');
+  };
+  genPreviewBtn.onclick = doPreview;
+  genShapeEl.onchange = () => { if (!genWrap.hidden) doPreview(); };
+  genNameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doPreview(); } });
+  genSaveBtn.onclick = async () => {
+    const nm = genNameEl.value.trim();
+    if (!nm || !genDataUrl) { doPreview(); return; }
+    const fname = sanitizeName(nm) + '.png';
+    const dup = (info && info.files || []).some(f => f.name === fname);
+    if (dup && !confirm(`「${fname}」は既にあります。作り直して差し替えますか？`)) return;
+    genSaveBtn.disabled = true;
+    setMsg(genMsgEl, '', '登録中…');
+    try {
+      const b64 = genDataUrl.split(',')[1] || '';
+      const j = await apiPost('hanko_upload', { 'ファイル名': fname, 'base64': b64 }, { userId: cfg.userId });
+      setMsg(genMsgEl, 'ok', (j.action === 'replaced' ? '差し替えました: ' : '登録しました: ') + j['ファイル名'] + '（下の割当で選べます）', true);
+      genWrap.hidden = true; genNameEl.value = ''; genDataUrl = '';
+      await refresh();
+    } catch (e) {
+      setMsg(genMsgEl, 'ng', '失敗: ' + e.message);
+    } finally {
+      genSaveBtn.disabled = false;
+    }
   };
 
   fileInput.onchange = () => { upBtn.disabled = !fileInput.files.length; };

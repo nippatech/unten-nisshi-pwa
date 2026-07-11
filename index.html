@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.16.0">
+<link rel="stylesheet" href="./app.css?v=0.16.1">
 </head>
 <body>
 <header id="topbar">
@@ -192,7 +192,7 @@
   </section>
   <section class="card">
     <h2>ハンコ管理（PDFの承認印・管理者専用）</h2>
-    <p class="hint">月次PDFに押される「エリア別の承認印」を管理します。<b>承認者が交代したら</b>：①新しい印影（PNG画像）をアップロード → ②エリアの割当を変更、の2ステップで完了します。</p>
+    <p class="hint">月次PDFに押される「エリア別の承認印」を管理します。<b>承認者が交代したら</b>：①下の「印影を自動作成」で氏名を入れて登録（または画像をアップロード）→ ②エリアの割当を変更、の2ステップで完了します。</p>
     <h3>エリア → ハンコ割当</h3>
     <div id="hanko-map-list" class="staff-list"></div>
     <div class="staff-add-row" style="margin-top:8px;">
@@ -202,8 +202,27 @@
     </div>
     <p id="hanko-map-msg" class="msg"></p>
     <hr>
-    <h3>印影ファイル</h3>
-    <p class="hint">背景透過のPNG推奨。ファイル名は「氏名.png」（例: 山田.png）。同名でアップロードすると差し替えです。</p>
+    <h3>印影を自動作成</h3>
+    <p class="hint">氏名（姓）を入れるだけで、朱色の丸印を自動で作れます。画像を用意する必要はありません。プレビューを見て良ければ登録してください。</p>
+    <div class="staff-add-row">
+      <input id="hanko-gen-name" type="text" maxlength="6" placeholder="印影の文字（例: 山田）">
+      <select id="hanko-gen-shape">
+        <option value="circle">丸印</option>
+        <option value="square">角印</option>
+      </select>
+      <button id="btn-hanko-gen-preview" class="ghost" type="button">プレビュー</button>
+    </div>
+    <div id="hanko-gen-preview-wrap" hidden>
+      <img id="hanko-gen-img" class="hanko-preview" alt="印影プレビュー">
+      <div class="staff-add-row">
+        <span id="hanko-gen-fname" class="id"></span>
+        <button id="btn-hanko-gen-save" class="primary" type="button">この印影を登録</button>
+      </div>
+    </div>
+    <p id="hanko-gen-msg" class="msg"></p>
+    <hr>
+    <h3>印影ファイル（手動アップロード）</h3>
+    <p class="hint">実物のハンコをスキャンした画像などを使う場合。背景透過のPNG推奨。ファイル名は「氏名.png」（例: 山田.png）。同名でアップロードすると差し替えです。</p>
     <div class="staff-add-row">
       <input id="hanko-file-input" type="file" accept="image/png,image/jpeg">
       <button id="btn-hanko-upload" class="primary" type="button" disabled>アップロード</button>
@@ -275,6 +294,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.16.0" defer></script>
+<script src="./app.js?v=0.16.1" defer></script>
 </body>
 </html>
