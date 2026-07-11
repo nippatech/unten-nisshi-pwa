@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.16.2-poc';
+const APP_VERSION = '0.16.3-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -1859,19 +1859,19 @@ async function renderStaff() {
   await refresh();
 }
 
-// v0.16.1: 氏名から朱色の印影PNG(データURL)を自動生成する（Canvas・端末内で完結）。
-// 丸印/角印、縦書き。文字は円/枠の内接幅に収まるようフォントサイズを自動調整。
+// v0.16.3: 氏名から朱色の印影PNG(データURL)を自動生成する（Canvas・端末内で完結）。
+// 実物の認印に寄せて「細い枠＋各文字を枠いっぱいの横長に変形」して縦に積む。
 function makeHankoDataUrl(text, opts) {
   opts = opts || {};
   const S = 300, color = opts.color || '#c8102e', shape = opts.shape || 'circle';
   const cv = document.createElement('canvas'); cv.width = S; cv.height = S;
   const ctx = cv.getContext('2d');
-  const lw = Math.round(S * 0.032);
+  const lw = Math.max(3, Math.round(S * 0.022)); // 細めの枠（実物っぽく）
   const cx = S / 2, cy = S / 2;
-  const r = S / 2 - lw / 2 - 2;                 // 丸の半径
-  const half = r;                                // 角印の内寸半分
+  const r = S / 2 - lw / 2 - 2;                  // 丸の半径
+  const half = r;                                 // 角印の内寸半分
   // 枠
-  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'miter';
   if (shape === 'square') {
     ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
   } else {
@@ -1880,27 +1880,24 @@ function makeHankoDataUrl(text, opts) {
   const chars = [...String(text).trim()].filter(c => c.trim());
   const n = Math.max(1, chars.length);
   ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const usableH = 2 * r * (shape === 'square' ? 0.86 : 0.82);
+  const usableH = 2 * r * (shape === 'square' ? 0.96 : 0.94); // 枠いっぱいに縦を使う
   const cellH = usableH / n;
   const top = cy - usableH / 2 + cellH / 2;
-  // その行(y)で使える横幅：丸は内接幅、角は一定幅
-  const availWidthAt = (y) => {
-    if (shape === 'square') return 2 * half * 0.82;
-    const hw = Math.sqrt(Math.max(0, r * r - (y - cy) * (y - cy)));
-    return 2 * hw * 0.80;
-  };
-  const fits = (fs) => {
-    ctx.font = 'bold ' + fs + 'px serif';
-    for (let i = 0; i < n; i++) {
-      const y = top + cellH * i;
-      if (ctx.measureText(chars[i]).width > availWidthAt(y)) return false;
-    }
-    return true;
-  };
-  let fs = Math.min(cellH * 0.98, r * 1.3);
-  while (fs > 8 && !fits(fs)) fs -= 2;
-  ctx.font = 'bold ' + fs + 'px serif';
-  chars.forEach((ch, i) => ctx.fillText(ch, cx, top + cellH * i));
+  const baseFs = 100; ctx.font = 'bold ' + baseFs + 'px serif';
+  const natH = baseFs * 0.88; // 全角のおおよその字面高さ
+  chars.forEach((ch, i) => {
+    const y = top + cellH * i;
+    let availW;
+    if (shape === 'square') availW = 2 * half * 0.94;
+    else { const hw = Math.sqrt(Math.max(0, r * r - (y - cy) * (y - cy))); availW = 2 * hw * 0.92; }
+    const natW = ctx.measureText(ch).width || baseFs;
+    // 縦=セルいっぱい、横=枠内接幅いっぱい に変形（＝横長の文字）
+    ctx.save();
+    ctx.translate(cx, y);
+    ctx.scale(availW / natW, (cellH * 0.98) / natH);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  });
   return cv.toDataURL('image/png');
 }
 
