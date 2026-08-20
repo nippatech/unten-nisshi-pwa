@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.16.3-poc';
+const APP_VERSION = '0.17.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -174,10 +174,13 @@ function activeStaff() {
 // 社員マスタは氏名フルネーム（山田 賢哉）。姓部分でマッチング。
 // 全員が退職している姓だけ除外。「その他」など社員でない選択肢は残す。
 // v0.9.8: 引退車種の判定（部分一致・大文字小文字無視）
+// v0.17.0: 車種マスタ「廃車フラグ」で判定（シート駆動＝車両管理画面で変更可能）。
+//   旧サーバー応答/旧キャッシュ（フラグ列が無い）の間だけキーワード判定にフォールバック。
 const RETIRED_VEHICLE_KEYWORDS = ['ファイター', 'TONEZ', 'レンタカー'];
 function isActiveVehicle(v) {
   const name = String(v['車種'] || '').trim();
   if (!name) return false; // 空欄除外
+  if (v && ('廃車フラグ' in v)) return !v['廃車フラグ'];
   const up = name.toUpperCase();
   return !RETIRED_VEHICLE_KEYWORDS.some(kw => up.includes(kw.toUpperCase()));
 }
@@ -928,10 +931,10 @@ async function renderForm(opts = {}) {
   visibleVehicles.forEach(v => {
     const opt = document.createElement('option');
     opt.value = v.ID;
-    // 引退車種が編集時に出る場合はラベルに【引退】を付ける
+    // 引退車種が編集時に出る場合はラベルに【廃車】を付ける
     const isRetired = !isActiveVehicle(v);
     const baseLabel = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
-    opt.textContent = isRetired ? `【引退】${baseLabel}` : baseLabel;
+    opt.textContent = isRetired ? `【廃車】${baseLabel}` : baseLabel;
     opt.dataset.user = v['使用者'] || '';
     sel.appendChild(opt);
   });
@@ -1384,9 +1387,10 @@ async function renderBulk() {
       return `<option value="${escape(id)}"${preset.driver === id ? ' selected' : ''}>${escape(name)}</option>`;
     }).join('');
     const driverInput = `<select class="b-driver"><option value="">選択</option>${driverOpts}</select>`;
-    // 車種セレクト
-    const vehicleOpts = vehicles.map(v => {
-      const label = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
+    // 車種セレクト（v0.17.0: 空名行は除外。廃車は【廃車】印付きで表示＝過去日付の代理入力用に選択自体は可能）
+    const vehicleOpts = vehicles.filter(v => String(v['車種'] || '').trim()).map(v => {
+      const base = `${v['車種'] || ''} / ${v['車輛番号'] || ''}`.trim().replace(/\s*\/\s*$/, '').replace(/^\s*\/\s*/, '');
+      const label = (isActiveVehicle(v) ? '' : '【廃車】') + base;
       return `<option value="${escape(v.ID)}"${String(preset.vehicle) === String(v.ID) ? ' selected' : ''}>${escape(label)}</option>`;
     }).join('');
     const vehicleInput = `<select class="b-vehicle"><option value="">選択</option>${vehicleOpts}</select>`;
@@ -1681,7 +1685,9 @@ async function renderStaff() {
   // v0.14.9: アルコールチェック確認者の管理カード
   bindCheckerMgmt();
   // v0.16.0: ハンコ管理カード（エリア別承認印の割当・印影アップロード）
-  bindHankoMgmt();
+  const hankoRefresh = bindHankoMgmt();
+  // v0.17.0: 車両管理カード（追加・変更・廃車/復帰）。エリアが増えたらハンコ側も再読込
+  bindVehicleMgmt(hankoRefresh);
 
   const listEl = document.getElementById('staff-list');
   const countEl = document.getElementById('staff-count');
@@ -2154,6 +2160,174 @@ function bindHankoMgmt() {
   };
 
   refresh();
+  return refresh; // v0.17.0: 車両管理から再読込できるように
+}
+
+// ----- v0.17.0: 車両管理（車種マスタの追加・変更・廃車/復帰） -----
+function bindVehicleMgmt(hankoRefresh) {
+  const listEl = document.getElementById('vehicle-list');
+  if (!listEl) return;
+  const countEl = document.getElementById('vehicle-count');
+  const msgEl = document.getElementById('vehicle-msg');
+  const addMsgEl = document.getElementById('vehicle-add-msg');
+  const nameEl = document.getElementById('vehicle-new-name');
+  const numEl = document.getElementById('vehicle-new-num');
+  const addBtn = document.getElementById('btn-vehicle-add');
+  const showRetired = document.getElementById('chk-show-retired-v');
+  let all = [];
+
+  const setMsg = (el, cls, text, autoclear) => {
+    el.className = 'msg' + (cls ? ' ' + cls : '');
+    el.textContent = text;
+    if (autoclear) setTimeout(() => { if (el.textContent === text) { el.textContent = ''; el.className = 'msg'; } }, 5000);
+  };
+  const hasRegion = (nm) => /[（(][^（）()]+[）)]\s*$/.test(nm);
+  const regionOf = (nm) => (String(nm).match(/[（(]\s*([^（）()]+?)\s*[）)]\s*$/) || [])[1] || '';
+  // 追加/変更後の共通後処理: ハンコ側のエリア一覧を最新化＋未割当なら誘導メッセージ
+  const afterSave = (el, j, okText, refreshed) => {
+    if (typeof hankoRefresh === 'function') hankoRefresh();
+    if (!refreshed) {
+      setMsg(el, 'ok', okText + '（一覧の再取得に失敗しました。画面を開き直すと反映されます）');
+    } else if (j.region && !j.hankoAssigned) {
+      setMsg(el, 'ok', okText + ` ⚠ エリア「${j.region}」はハンコ未割当です。下のハンコ管理で割当ててください。`);
+    } else {
+      setMsg(el, 'ok', okText, true);
+    }
+  };
+
+  const refresh = async () => {
+    try {
+      const j = await apiGet('vehicles');
+      all = j.data || [];
+      // 新規入力フォームが使うキャッシュも最新化
+      dbPut('cache', { key: 'vehicles', value: all, at: Date.now() }).catch(() => {});
+      render();
+      return true;
+    } catch (e) {
+      setMsg(msgEl, 'ng', '取得失敗: ' + e.message);
+      return false;
+    }
+  };
+
+  const render = () => {
+    listEl.innerHTML = '';
+    const withName = all.filter(v => String(v['車種'] || '').trim());
+    const visible = showRetired.checked ? withName : withName.filter(v => isActiveVehicle(v));
+    const retiredCount = withName.filter(v => !isActiveVehicle(v)).length;
+    countEl.textContent = `${visible.length} 件${showRetired.checked && retiredCount > 0 ? `（うち廃車 ${retiredCount}）` : ''}`;
+    for (const v of visible) {
+      const id = String(v['ID']);
+      const name = String(v['車種'] || '');
+      const num = String(v['車輛番号'] || '');
+      const isRetired = !isActiveVehicle(v);
+      const div = document.createElement('div');
+      div.className = 'staff-item' + (isRetired ? ' retired' : '');
+      div.innerHTML = `
+        <div>
+          <span class="name">${escape(name)}</span>
+          ${isRetired ? '<span class="retired-badge">廃車</span>' : ''}
+          ${num ? `<span class="id">${escape(num)}</span>` : ''}
+        </div>
+        <span class="id">ID:${escape(id)}</span>
+        <div class="actions">
+          <button class="ghost small" data-edit>編集</button>
+          <button class="ghost small ${isRetired ? '' : 'danger'}" data-toggle>${isRetired ? '復帰' : '廃車'}</button>
+        </div>
+      `;
+      // 編集（車種名・車輛番号。IDは変えない＝過去データとの紐付け維持）
+      div.querySelector('[data-edit]').onclick = (ev) => {
+        ev.preventDefault();
+        const nameCell = div.querySelector('.name').parentElement;
+        const actions = div.querySelector('.actions');
+        nameCell.innerHTML = '';
+        const inName = document.createElement('input');
+        inName.type = 'text'; inName.value = name;
+        inName.style.cssText = 'width:100%;font-size:0.95rem;padding:6px;margin-bottom:4px;';
+        const inNum = document.createElement('input');
+        inNum.type = 'text'; inNum.value = num; inNum.placeholder = '車輛番号';
+        inNum.style.cssText = 'width:100%;font-size:0.85rem;padding:6px;';
+        nameCell.appendChild(inName); nameCell.appendChild(inNum);
+        const save = document.createElement('button');
+        save.type = 'button'; save.className = 'primary small'; save.textContent = '保存';
+        const cancel = document.createElement('button');
+        cancel.type = 'button'; cancel.className = 'ghost small'; cancel.textContent = 'キャンセル';
+        actions.innerHTML = '';
+        actions.appendChild(save); actions.appendChild(cancel);
+        setTimeout(() => { inName.focus(); }, 0);
+        cancel.onclick = () => render();
+        save.onclick = async () => {
+          const newName = inName.value.trim();
+          const newNum = inNum.value.trim();
+          if (!newName) { inName.focus(); return; }
+          if (newName === name && newNum === num) { render(); return; }
+          if (!hasRegion(newName) && !confirm(`車種名「${newName}」からエリアが読み取れません。\n末尾に「(エリア)」を付けるのがおすすめです（例: ${newName}(福山)）。\nこのまま保存しますか？`)) { inName.focus(); return; }
+          // v0.17.0fix: エリアが変わる改名は、過去月のPDF再出力・分析表示にも新エリアが使われる旨を警告
+          const oldRegion = regionOf(name), newRegion = regionOf(newName);
+          if (oldRegion && newRegion && oldRegion !== newRegion) {
+            if (!confirm(`エリアを「${oldRegion}」→「${newRegion}」に変更しようとしています。\n※過去の月をPDFで出し直した場合や分析画面でも、新しい名前・新エリアの上長印が使われます（保存済みのPDFファイルは変わりません）。\n変更しますか？`)) return;
+          }
+          save.disabled = true; cancel.disabled = true;
+          setMsg(msgEl, '', '更新中…');
+          try {
+            const j = await apiPost('vehicle_upsert', { 'ID': id, '車種': newName, '車輛番号': newNum }, { userId: cfg.userId });
+            const refreshed = await refresh();
+            afterSave(msgEl, j, `「${newName}」に更新しました`, refreshed);
+          } catch (e) {
+            // 入力値を消さない（renderせず編集UIを維持して再試行できるように）
+            setMsg(msgEl, 'ng', '失敗: ' + e.message);
+            save.disabled = false; cancel.disabled = false;
+          }
+        };
+      };
+      // 廃車/復帰
+      div.querySelector('[data-toggle]').onclick = async (ev) => {
+        ev.preventDefault();
+        const target = !isRetired;
+        const msg = target
+          ? `「${name}」を廃車にしますか？\n新規入力のドロップダウンから消えますが、過去の記録・PDF・分析はそのまま残ります。`
+          : `「${name}」を復帰させますか？`;
+        if (!confirm(msg)) return;
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        setMsg(msgEl, '', '更新中…');
+        try {
+          await apiPost('vehicle_retire', { 'ID': id, '廃車フラグ': target }, { userId: cfg.userId });
+          const refreshed = await refresh();
+          const okText = `「${name}」を${target ? '廃車' : '復帰'}にしました`;
+          if (refreshed) setMsg(msgEl, 'ok', okText, true);
+          else setMsg(msgEl, 'ok', okText + '（一覧の再取得に失敗しました。画面を開き直すと反映されます）');
+          if (typeof hankoRefresh === 'function') hankoRefresh(); // エリア集計が変わる可能性
+        } catch (e) {
+          btn.disabled = false;
+          setMsg(msgEl, 'ng', '失敗: ' + e.message);
+        }
+      };
+      listEl.appendChild(div);
+    }
+  };
+
+  showRetired.onchange = render;
+
+  addBtn.onclick = async () => {
+    const name = nameEl.value.trim();
+    const num = numEl.value.trim();
+    if (!name) { setMsg(addMsgEl, 'ng', '車種名を入力してください'); return; }
+    if (!hasRegion(name) && !confirm(`車種名「${name}」からエリアが読み取れません。\n末尾に「(エリア)」を付けるのがおすすめです（例: ${name}(福山)）。\nこのまま追加しますか？`)) { nameEl.focus(); return; }
+    addBtn.disabled = true;
+    setMsg(addMsgEl, '', '追加中…');
+    try {
+      const j = await apiPost('vehicle_upsert', { '車種': name, '車輛番号': num }, { userId: cfg.userId });
+      nameEl.value = ''; numEl.value = '';
+      const refreshed = await refresh();
+      afterSave(addMsgEl, j, `追加しました: ${j['車種']}（ID:${j['ID']}）`, refreshed);
+    } catch (e) {
+      setMsg(addMsgEl, 'ng', '失敗: ' + e.message);
+    } finally {
+      addBtn.disabled = false;
+    }
+  };
+
+  refresh();
 }
 
 // ----- ビュー: 設定 -----
@@ -2178,7 +2352,7 @@ async function renderPdf() {
   const msg = document.getElementById('pdf-msg');
   const results = document.getElementById('pdf-results');
 
-  // 車種（引退車種も含む。過去期間のPDFを出すため。引退は【引退】表示）
+  // 車種（引退車種も含む。過去期間のPDFを出すため。引退は【廃車】表示）
   const vSel = document.getElementById('p-vehicle');
   let vehicles = [];
   try {
@@ -2194,7 +2368,7 @@ async function renderPdf() {
     if (!name) continue;
     const opt = document.createElement('option');
     opt.value = String(v['ID']);
-    const prefix = isActiveVehicle(v) ? '' : '【引退】';
+    const prefix = isActiveVehicle(v) ? '' : '【廃車】';
     opt.textContent = prefix + name + (v['車輛番号'] ? ' / ' + String(v['車輛番号']).trim() : '');
     vSel.appendChild(opt);
   }

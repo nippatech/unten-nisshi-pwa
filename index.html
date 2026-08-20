@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.16.3">
+<link rel="stylesheet" href="./app.css?v=0.17.0">
 </head>
 <body>
 <header id="topbar">
@@ -191,6 +191,22 @@
     <p id="checker-msg" class="msg"></p>
   </section>
   <section class="card">
+    <h2>車両管理（管理者専用）</h2>
+    <p class="hint">新規入力の「車種」ドロップダウンに出る車両を管理します。車種名の末尾には <b>「(エリア)」</b> を付けてください（例: トヨタハイエース(福山)）— PDFの上長印と分析のエリア分類に使われます。「廃車」にするとドロップダウンから消えます（過去の記録・PDF・分析はそのまま残ります）。</p>
+    <div class="staff-add-row">
+      <input id="vehicle-new-name" type="text" placeholder="車種名（例: トヨタハイエース(福山)）">
+      <input id="vehicle-new-num" type="text" placeholder="車輛番号（例: 福山100あ1234）">
+      <button id="btn-vehicle-add" class="primary" type="button">追加</button>
+    </div>
+    <p id="vehicle-add-msg" class="msg"></p>
+    <div class="staff-toolbar">
+      <label class="admin-toggle"><input type="checkbox" id="chk-show-retired-v"> 廃車も表示</label>
+      <span id="vehicle-count" class="bulk-rowcount">— 件</span>
+    </div>
+    <div id="vehicle-list" class="staff-list"></div>
+    <p id="vehicle-msg" class="msg"></p>
+  </section>
+  <section class="card">
     <h2>ハンコ管理（PDFの承認印・管理者専用）</h2>
     <p class="hint">月次PDFに押される承認印を管理します。「業務部（管理者）」と「上長（エリア別）」の2種類があります。<b>担当者が交代したら</b>：①下の「印影を自動作成」で新任の氏名を入れて登録（または画像をアップロード）→ ②この画面の該当欄で選び直す、の2ステップで完了します。</p>
     <h3>業務部（管理者）の承認印</h3>
@@ -300,6 +316,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.16.3" defer></script>
+<script src="./app.js?v=0.17.0" defer></script>
 </body>
 </html>
