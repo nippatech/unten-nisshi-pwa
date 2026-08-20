@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<link rel="stylesheet" href="./app.css?v=0.17.0">
+<link rel="stylesheet" href="./app.css?v=0.18.0">
 </head>
 <body>
 <header id="topbar">
@@ -148,16 +148,6 @@
 </template>
 
 <template id="tpl-staff">
-  <section class="card" id="card-appsheet-import">
-    <h2>AppSheet版データ取り込み（管理者専用）</h2>
-    <p class="hint">並行運用中の AppSheet 版スプレッドシートから、PWA「データ」シートに重複なく追記します。判定キーは「データID」。同じIDがあればスキップします。</p>
-    <div class="row" style="gap:8px; flex-wrap:wrap;">
-      <button id="btn-appsheet-inspect" class="ghost" type="button">内訳を確認（書き込みなし）</button>
-      <button id="btn-appsheet-import" class="primary" type="button" disabled>取り込み実行</button>
-    </div>
-    <pre id="appsheet-result" class="appsheet-result" hidden></pre>
-    <p id="appsheet-msg" class="msg"></p>
-  </section>
   <section class="card">
     <h2>社員管理（管理者専用）</h2>
     <p class="hint">運転者ドロップダウンに表示される人を管理します。退職フラグを立てると、ドロップダウンから消えます（過去の入力データは残ります）。氏名の修正は各行の「編集」から（社員IDは変わらないので過去データはそのまま）。</p>
@@ -292,7 +282,7 @@
 <template id="tpl-pdf">
   <section class="card">
     <h2>PDF出力（管理者専用）</h2>
-    <p class="hint">AppSheet版と同じレイアウトの運転日誌PDFを作成します。作成したPDFはDriveの「PDF」フォルダにも保存されます。車種を選ばない場合は、期間内に走行のあった全車種を車両ごとに出力します。<strong>2ページ以上は1ファイルに結合</strong>し、<strong>印鑑は車両のエリアで自動割当</strong>（福山=髙眞／関東=深澤／九州・大阪・本社=山田／多可=三島）します。</p>
+    <p class="hint">運転日誌PDFを作成します。作成したPDFはDriveの「PDF」フォルダにも保存されます。車種を選ばない場合は、期間内に走行のあった全車種を車両ごとに出力します。<strong>2ページ以上は1ファイルに結合</strong>し、<strong>上長印は車両のエリアで自動割当</strong>されます（割当は「社員」画面のハンコ管理で変更できます）。</p>
     <form id="form-pdf" autocomplete="off">
       <label>開始日
         <input id="p-start" type="date" required>
@@ -316,6 +306,6 @@
   </section>
 </template>
 
-<script src="./app.js?v=0.17.0" defer></script>
+<script src="./app.js?v=0.18.0" defer></script>
 </body>
 </html>

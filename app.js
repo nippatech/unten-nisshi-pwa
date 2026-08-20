@@ -9,7 +9,7 @@
  *  - GAS への POST は Content-Type: text/plain で送り、CORS preflightを回避
  */
 
-const APP_VERSION = '0.17.0-poc';
+const APP_VERSION = '0.18.0-poc';
 const LS_URL = 'unten.gas_url';
 const LS_TOKEN = 'unten.token';
 const LS_USER = 'unten.user_id';
@@ -118,7 +118,6 @@ const me = {
   isAdmin: false,
   serverEligible: false,
   adminPasswordSet: false,
-  dualDb: false, // v0.14.6: 移行期間の二重DB参照が有効か（メーター連続性）
   editWindowDays: 30,
   loaded: false,
 };
@@ -134,7 +133,6 @@ async function fetchMe() {
     const j = await apiGet('me', { userId: cfg.userId });
     me.serverEligible = !!j.isAdmin;
     me.adminPasswordSet = !!j.adminPasswordSet;
-    me.dualDb = !!j.dualDb;
     me.editWindowDays = j.editWindowDays || 30;
     me.loaded = true;
     recomputeAdmin();
@@ -995,12 +993,12 @@ async function renderForm(opts = {}) {
       startInputElem.dataset.userInput = '1';
     }
   });
-  // v0.14.6: 移行期間だけ、選んだ車種の発車前メータを「新DB＋旧DB(AppSheet)の和集合」の
-  //   最新到着メータで補正する（車両が両系にまたがってもメーターが不連続にならない）。
-  //   recentLogs（新DBのみ・直近100件）の値を、サーバーの全DB照合値で上書きする。
+  // v0.18.0: 選んだ車種の発車前メータを、サーバーの「全履歴」最新到着メータで補正する。
+  //   recentLogs は直近100件しか見ないため、久しぶりに使う車両だと補完できない/古い値になる。
+  //   （旧: 新旧DB和集合の照合。AppSheet廃止後は新DBの全履歴照合として存続）
   let _meterCheckedVid = '';
-  async function correctMeterCrossDB(vehicleId) {
-    if (isEdit || !me.dualDb) return;          // 移行モード(dualDb)のみ
+  async function correctMeterFullHistory(vehicleId) {
+    if (isEdit) return;
     vehicleId = String(vehicleId || '');
     if (!vehicleId) return;
     const startInput = document.getElementById('f-start');
@@ -1015,7 +1013,7 @@ async function renderForm(opts = {}) {
       if (m !== '' && m != null && String(startInput.value) !== String(m)) {
         startInput.value = m;
         const hint = document.getElementById('f-start-hint');
-        if (hint) hint.textContent = `（前回到着 ${m} から自動入力・新旧DB照合）`;
+        if (hint) hint.textContent = `（前回到着 ${m} から自動入力・全履歴照合）`;
         startInput.dispatchEvent(new Event('input'));
       }
     } catch (_) {}
@@ -1035,7 +1033,7 @@ async function renderForm(opts = {}) {
       return;
     }
     // v0.14.6: 移行期間は全DB照合で発車前メータを補正（recentLogsの新DB値を上書きしうる）
-    correctMeterCrossDB(vehicleId);
+    correctMeterFullHistory(vehicleId);
     if (recentLogs.length === 0) {
       if (hint) hint.textContent = '（過去データを取得中…車種を選び直してください）';
       return;
@@ -1540,79 +1538,6 @@ async function renderBulk() {
 }
 
 // ----- Phase G: ビュー: 社員管理（管理者専用） -----
-// v0.9.11: AppSheet 取り込みカードのバインド
-function bindAppsheetImport() {
-  const btnInspect = document.getElementById('btn-appsheet-inspect');
-  const btnImport = document.getElementById('btn-appsheet-import');
-  const result = document.getElementById('appsheet-result');
-  const msg = document.getElementById('appsheet-msg');
-  if (!btnInspect || !btnImport) return;
-
-  const setBusy = (b) => {
-    btnInspect.disabled = b;
-    if (b) btnImport.disabled = true;
-  };
-  const showResult = (obj) => {
-    result.hidden = false;
-    result.textContent = JSON.stringify(obj, null, 2);
-  };
-
-  btnInspect.onclick = async () => {
-    msg.className = 'msg'; msg.textContent = '確認中…'; setBusy(true);
-    try {
-      // ステップ1: 列差分・件数
-      const inspect = await apiGet('inspect_appsheet', { userId: cfg.userId });
-      // ステップ2: ドライランで取り込み件数
-      const dry = await apiPost('import_appsheet', {}, { userId: cfg.userId, dryRun: true });
-      const summary = {
-        AppSheet側: {
-          総行数: inspect.appsheet.rowCount,
-          列: inspect.appsheet.headers,
-        },
-        PWA側: {
-          総行数: inspect.pwa.rowCount,
-          列: inspect.pwa.headers,
-        },
-        列の差分: {
-          両方にある: inspect.headerDiff.bothSides,
-          AppSheet側のみ: inspect.headerDiff.onlyAppsheet,
-          PWA側のみ: inspect.headerDiff.onlyPwa,
-        },
-        重複判定: {
-          キー列: inspect.duplicateCheck.keyColumn,
-          既存マッチ: dry.existingMatched,
-          取り込み対象: dry.toImport,
-        },
-        取り込みサンプル: dry.sample,
-      };
-      showResult(summary);
-      msg.className = 'msg ok';
-      msg.textContent = `取り込み対象: ${dry.toImport} 件（${inspect.appsheet.rowCount} 件中、${dry.existingMatched} 件は既存）`;
-      btnImport.disabled = dry.toImport === 0;
-    } catch (e) {
-      msg.className = 'msg ng'; msg.textContent = '失敗: ' + e.message;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  btnImport.onclick = async () => {
-    if (!confirm('AppSheet 版から PWA「データ」シートに追記します。よろしいですか？\n（重複データはスキップされます）')) return;
-    msg.className = 'msg'; msg.textContent = '取り込み実行中…'; setBusy(true);
-    btnImport.disabled = true;
-    try {
-      const r = await apiPost('import_appsheet', {}, { userId: cfg.userId, dryRun: false });
-      showResult(r);
-      msg.className = 'msg ok';
-      msg.textContent = r.message || `${r.imported || 0} 件取り込みました`;
-    } catch (e) {
-      msg.className = 'msg ng'; msg.textContent = '失敗: ' + e.message;
-    } finally {
-      setBusy(false);
-    }
-  };
-}
-
 // v0.14.9: アルコールチェック確認者の追加/削除（管理者専用）
 function bindCheckerMgmt() {
   const listEl = document.getElementById('checker-list');
@@ -1680,8 +1605,6 @@ async function renderStaff() {
   const view = document.getElementById('view');
   view.appendChild(document.getElementById('tpl-staff').content.cloneNode(true));
 
-  // v0.9.11: AppSheet 取り込みカードのハンドラ
-  bindAppsheetImport();
   // v0.14.9: アルコールチェック確認者の管理カード
   bindCheckerMgmt();
   // v0.16.0: ハンコ管理カード（エリア別承認印の割当・印影アップロード）
